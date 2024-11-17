@@ -1,2 +1,5 @@
 .venv/
 src/archive
+src/processed/user_reviews_reduced.csv
+src/main/MatrixFactorization/project
+src/main/MatrixFactorization/target
