@@ -1,6 +1,14 @@
 # ScalableAndCloudProgramming
 Repository for the project Scalable and Cloud Programming
 
+## Run Scala Code
+Go to the folder where is placed the script you want to execute and run the commands:
+
+```
+sbt compile
+sbt run
+``` 
+
 ## Setup Python Virtual Environment
 
 Run the command:
