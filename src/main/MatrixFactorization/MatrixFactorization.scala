@@ -15,43 +15,52 @@ object MatrixFactorization {
     val dataset_path = "../../processed/user_reviews_reduced.csv"
 
     val schema = StructType(Array(
-        StructField("movieId", StringType, true),
-        StructField("rating", DoubleType, true),
-        StructField("userId", StringType, true)
+      StructField("movieId", IntegerType, true),
+      StructField("rating", DoubleType, true),
+      StructField("quote", StringType, true),
+      StructField("creationDate", StringType, true),
+      StructField("userId", IntegerType, true)
     ))
 
     val df = spark.read.option("header", "true")
             .schema(schema)
             .csv(dataset_path)
 
-    df.printSchema()
+
+    val dfCast = df
+      .withColumn("movieId", col("movieId").cast("int"))
+      .withColumn("rating", col("rating").cast("double"))
+      .withColumn("userId", col("userId").cast("int"))
+
+    dfCast.printSchema()
+    dfCast.show()
 
     // mappa userId su ID numerico
-    val userIndexer = new StringIndexer()
-      .setInputCol("userId")
-      .setOutputCol("userIdIndex")
-      .fit(df) 
+    // val userIndexer = new StringIndexer()
+    //   .setInputCol("userId")
+    //   .setOutputCol("userIdIndex")
+    //   .fit(df) 
 
-    // mappa 'movieId' su ID numerico
-    val movieIndexer = new StringIndexer()
-      .setInputCol("movieId")
-      .setOutputCol("movieIdIndex")
-      .fit(df) 
+    // // mappa 'movieId' su ID numerico
+    // val movieIndexer = new StringIndexer()
+    //   .setInputCol("movieId")
+    //   .setOutputCol("movieIdIndex")
+    //   .fit(df) 
     
 
     val Array(trainingData, testData) = df.randomSplit(Array(0.8, 0.2))
     
-    val trainingData_indexed = movieIndexer.transform(userIndexer.transform(df))
-    val testData_indexed = movieIndexer.transform(userIndexer.transform(df))
+    // val trainingData_indexed = movieIndexer.transform(userIndexer.transform(df))
+    // val testData_indexed = movieIndexer.transform(userIndexer.transform(df))
 
     val als = new ALS()
       .setMaxIter(10) 
       .setRegParam(0.1) 
-      .setUserCol("userIdIndex")
-      .setItemCol("movieIdIndex")
+      .setUserCol("userId")
+      .setItemCol("movieId")
       .setRatingCol("rating")
 
-    val model = als.fit(trainingData_indexed)
+    val model = als.fit(trainingData)
 
     //TODO: conversione movieId e userId a stringhe originali
     // val userId_reconverted = userIndexer.labels.zipWithIndex.map { 
@@ -66,7 +75,7 @@ object MatrixFactorization {
     // val convertMovieId = udf((movieIdIndex: Double) => movieId_reconverted.getOrElse(movieIdIndex.toInt, "Unknown"))
 
     
-    val predictions = model.transform(testData_indexed)
+    val predictions = model.transform(testData)
 
     val evaluator = new RegressionEvaluator()
       .setMetricName("rmse")
@@ -76,7 +85,7 @@ object MatrixFactorization {
     val rmse = evaluator.evaluate(predictions)
     println(s"Root-mean-square error = $rmse")
 
-    predictions.select("userIdIndex", "movieIdIndex", "prediction").show()
+    predictions.select("userId", "movieId", "prediction").show()
     
     // per ogni utente, consiglia i top 5 movieId 
     val userRecs = model.recommendForAllUsers(5)
