@@ -53,17 +53,24 @@ object SentimentCSVProcessor {
       row + ("sentimentResult" -> sentimentScore.toString)
     }
 
+    // Rimosso il campo quote
+    val rowsWithoutQuote  = updatedRows.map(_.filterKeys(_ != "quote"))
+
     // Scrive il nuovo CSV con la colonna aggiuntiva
     val writer = CSVWriter.open(new java.io.File(outputFile))
-    writer.writeAll(updatedRows.map(_.values.toList)) // scrive tutte le righe nel CSV
+    if (rowsWithoutQuote.nonEmpty) {
+      // Aggiunto header campi
+      writer.writeRow(rowsWithoutQuote.head.keys.toList)
+      writer.writeAll(rowsWithoutQuote.map(_.values.toList))
+    }
     writer.close()
 
     println(s"File elaborato e salvato in: $outputFile")
   }
 
   def main(args: Array[String]): Unit = {
-    val inputFile = "C:/Users/f.vece/Downloads/output_1000.csv" // Nome del file CSV di input
-    val outputFile = "output_with_sentiment.csv" // Nome del file CSV di output
+    val inputFile = "../../processed/user_reviews_final_sampled.csv" // Nome del file CSV di input
+    val outputFile = "../../processed/user_reviews_with_sentiment.csv" // Nome del file CSV di output
     processCSV(inputFile, outputFile)
   }
 }

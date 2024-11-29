@@ -4,97 +4,98 @@ import org.apache.spark.ml.recommendation.ALS
 import org.apache.spark.ml.evaluation.RegressionEvaluator
 import org.apache.spark.ml.feature.StringIndexer
 import org.apache.spark.sql.types._
+import com.github.tototoshi.csv._
 
 object MatrixFactorization {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder()
-      .appName("ALSExample")
+      .appName("ALSMatrixFactorization")
       .master("local[*]") // esecuzione in locale
       .getOrCreate()
 
-    val dataset_path = "../../processed/user_reviews_reduced.csv"
+    val inputFile = "../../processed/user_reviews_with_sentiment.csv"
+    val outputFile = "../../processed/user_reviews_factorized.csv"
 
     val schema = StructType(Array(
-      StructField("movieId", IntegerType, true),
-      StructField("rating", DoubleType, true),
-      StructField("quote", StringType, true),
+      StructField("rating", DoubleType, true),  
       StructField("creationDate", StringType, true),
-      StructField("userId", IntegerType, true)
+      StructField("sentimentResult", DoubleType, true), 
+      StructField("userId", IntegerType, true),
+      StructField("movieId", IntegerType, true)
     ))
 
     val df = spark.read.option("header", "true")
             .schema(schema)
-            .csv(dataset_path)
+            .csv(inputFile)
 
 
     val dfCast = df
-      .withColumn("movieId", col("movieId").cast("int"))
       .withColumn("rating", col("rating").cast("double"))
+      .withColumn("sentimentResult", col("sentimentResult").cast("double"))
       .withColumn("userId", col("userId").cast("int"))
+      .withColumn("movieId", col("movieId").cast("int"))
+      
+    // calcolo del punteggio finale combinando rating e sentimentResult
+    val dfWeighted = dfCast.withColumn(
+      "totalScore",
+      col("rating") * lit(0.5) + col("sentimentResult") * lit(0.5)
+    )
 
-    dfCast.printSchema()
-    dfCast.show()
+    dfWeighted.printSchema()
+    dfWeighted.show()
 
-    // mappa userId su ID numerico
-    // val userIndexer = new StringIndexer()
-    //   .setInputCol("userId")
-    //   .setOutputCol("userIdIndex")
-    //   .fit(df) 
-
-    // // mappa 'movieId' su ID numerico
-    // val movieIndexer = new StringIndexer()
-    //   .setInputCol("movieId")
-    //   .setOutputCol("movieIdIndex")
-    //   .fit(df) 
+    val Array(trainingData, testData) = dfWeighted.randomSplit(Array(0.8, 0.2))
     
-
-    val Array(trainingData, testData) = df.randomSplit(Array(0.8, 0.2))
-    
-    // val trainingData_indexed = movieIndexer.transform(userIndexer.transform(df))
-    // val testData_indexed = movieIndexer.transform(userIndexer.transform(df))
-
     val als = new ALS()
       .setMaxIter(10) 
       .setRegParam(0.1) 
       .setUserCol("userId")
       .setItemCol("movieId")
-      .setRatingCol("rating")
+      .setRatingCol("totalScore")
 
     val model = als.fit(trainingData)
-
-    //TODO: conversione movieId e userId a stringhe originali
-    // val userId_reconverted = userIndexer.labels.zipWithIndex.map { 
-    //   case (label, index) => (index, label)
-    // }.toMap
-
-    // val movieId_reconverted = movieIndexer.labels.zipWithIndex.map { 
-    //   case (label, index) => (index, label)
-    // }.toMap
-
-    // val convertUserId = udf((userIdIndex: Double) => userId_reconverted.getOrElse(userIdIndex.toInt, "Unknown"))
-    // val convertMovieId = udf((movieIdIndex: Double) => movieId_reconverted.getOrElse(movieIdIndex.toInt, "Unknown"))
-
     
-    val predictions = model.transform(testData)
+    // Valutazione modello ALS
+    // val predictions = model.transform(testData)
 
-    val evaluator = new RegressionEvaluator()
-      .setMetricName("rmse")
-      .setLabelCol("rating")
-      .setPredictionCol("prediction")
+    // val evaluator = new RegressionEvaluator()
+    //   .setMetricName("rmse")
+    //   .setLabelCol("totalScore")
+    //   .setPredictionCol("prediction")
 
-    val rmse = evaluator.evaluate(predictions)
-    println(s"Root-mean-square error = $rmse")
+    // val rmse = evaluator.evaluate(predictions)
+    // println(s"Root-mean-square error = $rmse")
 
-    predictions.select("userId", "movieId", "prediction").show()
+    // predictions.select("userId", "movieId", "prediction").show()
     
     // per ogni utente, consiglia i top 5 movieId 
     val userRecs = model.recommendForAllUsers(5)
     userRecs.show(false)
 
-    // per ogni film, consiglia i top 5 userId
-    val movieRecs = model.recommendForAllItems(5)
-    movieRecs.show(false) 
+    saveRecommendationsToCsv(userRecs, outputFile)
+    
+    // // per ogni film, consiglia i top 5 userId
+    // val movieRecs = model.recommendForAllItems(5)
+    // movieRecs.show(false) 
 
     spark.stop()
+  }
+
+  def saveRecommendationsToCsv(userRecs: DataFrame, outputPath: String): Unit = {
+    val explodedRecs = userRecs.withColumn("recommendations", explode(col("recommendations")))
+      .select(
+        col("userId"),
+        col("recommendations.movieId").alias("movieId"),
+        col("recommendations.rating").alias("totalScore")
+      )
+
+    val writer = CSVWriter.open(new java.io.File(outputPath))
+    writer.writeRow(Seq("userId", "movieId", "totalScore"))
+    
+    writer.writeAll(explodedRecs.collect().map(row => 
+      Seq(row.getAs[Int]("userId").toString, 
+          row.getAs[Int]("movieId").toString, 
+          row.getAs[Double]("totalScore").toString)
+    ))
   }
 }
