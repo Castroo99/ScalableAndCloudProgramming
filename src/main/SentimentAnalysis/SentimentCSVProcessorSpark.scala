@@ -57,22 +57,30 @@ object SentimentCSVProcessorSpark {
 
     // Applica la UDF al DataFrame per creare la nuova colonna 'sentimentResult'
     val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote")))
+    val finalDF = resultDF.drop("quote")
 
     // Persisti il DataFrame in memoria
-    val cachedDF = resultDF.cache()
+    val cachedDF = finalDF.cache()
 
     // Stampa una parte del DataFrame per verificare i risultati
     cachedDF.show(20, truncate = false)
   }
 
   def main(args: Array[String]): Unit = {
-    val inputFile = "C:/Users/f.vece/Downloads/SentimentAnalysis/output_1000.csv" // Nome del file CSV di input
+    //val inputFile = "../../processed/user_reviews_final_sampled.csv" // Nome del file CSV di input
+    var bucketName = "recommendation-system-lfag"
+	  var dataset = "processed-dataset/user_reviews_final_sampled.csv"
+    var outputFile = "processed-dataset/user_reviews_with_sentiment.csv"
+
+    val basePath = s"gs://$bucketName"
+	  val datasetPath = s"$basePath/$dataset"
+	  val outputPath = s"$basePath/$outputFile"
 
     // Aggiungi il tempo di inizio
     val startTime = System.nanoTime()
 
     // Chiamata alla funzione per processare il CSV
-    processCSV(inputFile)
+    processCSV(datasetPath)
 
     // Aggiungi il tempo di fine
     val endTime = System.nanoTime()
