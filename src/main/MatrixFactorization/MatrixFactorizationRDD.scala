@@ -1,4 +1,5 @@
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.{SparkConf, SparkContext} 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.recommendation.{ALS, Rating}
 import com.github.tototoshi.csv._
@@ -6,8 +7,16 @@ import com.github.tototoshi.csv._
 object MatrixFactorizationRDD {
   def main(args: Array[String]): Unit = {
 
-    val inputFile = "../../processed/user_reviews_with_sentiment.csv"
-    val outputFile = "../../processed/user_reviews_factorizedRDD.csv"
+    var bucketName = "recommendation-system-lfag"
+	  var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
+    var outputFile = "processed-dataset/user_reviews_factorizedRDD.csv"
+
+    val basePath = s"gs://$bucketName"
+	  val datasetPath = s"$basePath/$inputFile"
+	  val outputPath = s"$basePath/$outputFile"
+
+    // val inputFile = "../../processed/user_reviews_with_sentiment.csv"
+    // val outputFile = "../../processed/user_reviews_factorizedRDD.csv"
     //var numPartitions = 3
 
     val conf = new SparkConf()
@@ -17,9 +26,9 @@ object MatrixFactorizationRDD {
     //   .set("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
     //   .set("spark.hadoop.google.cloud.auth.service.account.enable", "true")
 
-    val spark = new sparkContext(conf)
+    val spark = new SparkContext(conf)
     
-    val rawRdd: RDD[String] = spark.textFile(inputFile)
+    val rawRdd: RDD[String] = spark.textFile(datasetPath)
     
     // header rimosso da RDD
     val header = rawRdd.first()
@@ -47,7 +56,7 @@ object MatrixFactorizationRDD {
     // generarazione di 5 film raccomandati per ogni utente
     val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(5)
 
-    saveRecommendationsToCsv(userRecs, outputFile)
+    saveRecommendationsToCsv(userRecs, outputPath)
 
     spark.stop()
   }
