@@ -1,27 +1,30 @@
 lazy val root = (project in file("."))
     .aggregate(main, sentimentAnalysis, matrixFactorization, collaborativeItem)
     .settings(
-    name := "ScalableRecommendationSystem",
-    assemblySettings
+        name := "ScalableRecommendationSystem",
+        mainClass in assembly := Some("main.Main"),
+        assemblySettings
     )
 
 lazy val main = (project in file("main"))
     .dependsOn(sentimentAnalysis, matrixFactorization, collaborativeItem)
     .settings(
-    name := "MainModule",
-    assemblySettings
+        name := "Main",
+        mainClass in Compile := Some("main.Main"), 
+        mainClass in assembly := Some("main.Main"), 
+        assemblySettings
     )
 
 lazy val sentimentAnalysis = (project in file("sentimentAnalysis"))
     .settings(
-    name := "SentimentCSVProcessorSpark",
-    assemblySettings
+        name := "SentimentCSVProcessorSpark",
+        assemblySettings
     )
 
 lazy val matrixFactorization = (project in file("matrixFactorization"))
     .settings(
-    name := "MatrixFactorizationRDD",
-    assemblySettings
+        name := "MatrixFactorizationRDD",
+        assemblySettings
     )
 
 lazy val collaborativeItem = (project in file("collaborativeItem"))
