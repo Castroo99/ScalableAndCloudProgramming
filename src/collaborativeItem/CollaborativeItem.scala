@@ -1,5 +1,3 @@
-package CollaborativeItemModule
-
 import org.apache.spark.sql.{SparkSession, Row}
 import org.apache.spark.sql.functions._
 import org.apache.spark.mllib.linalg.{Vectors, Vector}
@@ -79,7 +77,6 @@ object CollaborativeFiltering {
       Row(movieId1, movieId2, similarity)
     }
 
-    // Modifica dello schema per usare StringType per i movieId e DoubleType per similarity
     val recommendationsSchema = Seq(
       "movieId1" -> StringType,
       "movieId2" -> StringType,
@@ -106,14 +103,38 @@ object CollaborativeFiltering {
       .agg(sum($"df1.similarity" * $"df2.similarity").as("predictedScore"))
       .orderBy(desc("predictedScore"))
 
-    // Visualizza le raccomandazioni
-    predictionDF.show()
+    // ** Normalizza i punteggi da 0 a 10 **
+    // Trova il minimo e il massimo dei predictedScore
+    val scoreStats = predictionDF.agg(
+      min("predictedScore").as("minScore"),
+      max("predictedScore").as("maxScore")
+    ).collect()
+
+    val minScore = scoreStats(0).getAs[Double]("minScore")
+    val maxScore = scoreStats(0).getAs[Double]("maxScore")
+
+    // Aggiungi una colonna NormalizedScore arrotondata e limitata a 10
+    val predictionWithNormalizedScoreDF = if (maxScore != minScore) {
+      predictionDF.withColumn(
+        "NormalizedScore",
+        least(bround(lit(10) * (col("predictedScore") - lit(minScore)) / (lit(maxScore) - lit(minScore)), 2), lit(10))
+      )
+    } else {
+      // Assegna un valore fisso (es. 5) in caso di punteggi costanti
+      predictionDF.withColumn("NormalizedScore", lit(5))
+    }
+
+    // Visualizza le raccomandazioni normalizzate
+    predictionWithNormalizedScoreDF.select("movieId1", "NormalizedScore").show()
 
     // ** Salvataggio dei risultati in un file CSV **
-    predictionDF.write
+    predictionWithNormalizedScoreDF
+      .select("movieId1", "NormalizedScore") // Seleziona solo le colonne finali
+      .write
       .option("header", "true")
-      .csv("predicted_recommendations.csv")
+      .csv("normalized_predicted_recommendations.csv")
 
     spark.stop()
   }
 }
+
