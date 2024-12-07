@@ -5,9 +5,15 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.recommendation.{ALS, Rating}
 import com.github.tototoshi.csv._
+import com.google.cloud.storage.{BlobInfo, Storage, StorageOptions}
+import java.nio.channels.Channels
+import java.io.ByteArrayOutputStream
+import kantan.csv._
+import kantan.csv.ops._
 
 object MatrixFactorizationRDD_ALS {
   def main(args: Array[String]): Unit = {
+    print("Starting MatrixFactorizationRDD_ALS")
 
     var bucketName = "recommendation-system-lfag"
 	  var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
@@ -17,20 +23,15 @@ object MatrixFactorizationRDD_ALS {
 	  val datasetPath = s"$basePath/$inputFile"
 	  val outputPath = s"$basePath/$outputFile"
 
-    // val inputFile = "../../processed/user_reviews_with_sentiment.csv"
-    // val outputFile = "../../processed/user_reviews_factorizedRDD.csv"
+    // Crea la sessione Spark
+    val spark: SparkSession = SparkSession.builder()
+      .appName("ReccSys")
+      .master("local[4]") // 4 thread
+      .getOrCreate()
+      
     //var numPartitions = 3
-
-    val conf = new SparkConf()
-      .setAppName("MatrixFactorizationRDD_ALS")
-      .setMaster("local[*]")
-    //  .set("spark.sql.shuffle.partitions", numPartitions) 
-    //   .set("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-    //   .set("spark.hadoop.google.cloud.auth.service.account.enable", "true")
-
-    val spark = new SparkContext(conf)
     
-    val rawRdd: RDD[String] = spark.textFile(datasetPath)
+    val rawRdd: RDD[String] = spark.sparkContext.textFile(datasetPath)
     
     // header rimosso da RDD
     val header = rawRdd.first()
@@ -58,11 +59,11 @@ object MatrixFactorizationRDD_ALS {
     // generarazione di 5 film raccomandati per ogni utente
     val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(5)
 
-    saveRecommendationsToCsv(userRecs, outputPath)
+    saveRecommendationsToGcs(userRecs, outputPath)
 
-    spark.stop()
+    print("End MatrixFactorizationRDD_ALS")
   }
-
+/* 
   def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
       case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
@@ -75,5 +76,41 @@ object MatrixFactorizationRDD_ALS {
       case (userId, movieId, totalScore) =>
         Seq(userId.toString, movieId.toString, totalScore.toString)
     })
+    } */
+  def saveRecommendationsToGcs(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
+    print("Starting MatrixFactorizationRDD_ALS.saveRecommendationsToGcs")
+    val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
+      case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
+    }
+
+    // Convert recommendations to CSV format in memory
+    val csvData = new ByteArrayOutputStream()
+    val writer = CSVWriter.open(csvData)
+
+    // Scrive header
+    writer.writeRow(Seq("userId", "movieId", "totalScore"))
+
+    // Scrive i dati
+    writer.writeAll(
+      recommendations.collect().map {
+        case (userId, movieId, totalScore) => Seq(userId.toString, movieId.toString, totalScore.toString)
+      }
+    )
+
+    writer.close()
+
+    // Configurazione e salvataggio su GCS
+    val storage: Storage = StorageOptions.getDefaultInstance.getService
+    val uri = new java.net.URI(outputPath)
+    val bucketName = uri.getHost
+    val objectName = uri.getPath.stripPrefix("/")
+
+    val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
+    val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
+    gcsWriter.write(csvData.toByteArray)
+    gcsWriter.close()
+
+    println(s"Recommendations saved to $outputPath")
   }
+
 }

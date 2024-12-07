@@ -9,6 +9,14 @@ import org.apache.spark.sql.types._
 
 object CollaborativeFiltering {
   def main(args: Array[String]): Unit = {
+    var bucketName = "recommendation-system-lfag"
+	  var dataset = "processed-dataset/user_reviews_final_sampled.csv"
+    var outputFile = "processed-dataset/user_reviews_with_sentiment.csv"
+
+    val basePath = s"gs://$bucketName"
+	  val datasetPath = s"$basePath/$dataset"
+	  val outputPath = s"$basePath/$outputFile"
+
     // Crea la SparkSession
     val spark = SparkSession.builder()
       .appName("CollaborativeFiltering")
