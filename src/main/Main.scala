@@ -2,7 +2,7 @@ package main
 
 import SentimentAnalysisModule.SentimentCSVProcessorSpark
 import CollaborativeItemModule.CollaborativeFiltering
-import MatrixFactorizationModule.MatrixFactorizationRDD
+import MatrixFactorizationModule.MatrixFactorizationRDD_ALS
 
 
 object Main extends App {
