@@ -8,10 +8,9 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.types._
 
 object CollaborativeItemUser {
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String], csvInputPath: String, csvOutputPath: String, targetUserId: String, n: Int ): Unit = {
     var bucketName = "recommendation-system-lfag"
 	  var moviesFile = "full-dataset/movies.csv"
-	  var reccFile = "processed-dataset/user_reviews_factorized_RDD_ALS.csv"
     var outputFile = "processed-dataset/normalized_predicted_recommendations.csv"
 
     val basePath = s"gs://$bucketName"
@@ -27,31 +26,21 @@ object CollaborativeItemUser {
     // Importa le implicite necessarie per lavorare con DataFrame
     import spark.implicits._
 
-    // Definisci l'utente per il quale vuoi calcolare le raccomandazioni
-    val targetUserId = "901245019" // Sostituisci con l'ID dell'utente desiderato
-
-    // Carica i dati dei film e delle raccomandazioni
+    // Carica i dati dei film e delle recensioni
     val moviesDF = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
-      .csv(moviesPath)  // Adatta il percorso del tuo file
-      .select("movieId", "userId", "rating")
+      .csv(csvInputPath) // Adatta il percorso del tuo file
+      .select("movieId", "userId", "rating", "sentimentResult")
 
-    val recommendationsDF = spark.read
-      .option("header", "true")
-      .option("inferSchema", "true")
-      .csv(reccPath) // Adatta il percorso del tuo file
-      .select("userId", "movieId", "recommendationValue")
+    // Calcola il rating combinando il rating e il sentiment
+    val sentimentDF = moviesDF.withColumn(
+      "rating",
+      col("rating") * 0.5 + col("sentimentResult") * 0.5
+    )
 
-    // Filtra i dati per l'utente specifico
-    val filteredRecommendationsDF = recommendationsDF.filter($"userId" === targetUserId)
-
-    // Mostra i dati filtrati per il debug
-    moviesDF.show()
-    filteredRecommendationsDF.show()
-
-    // ** Crea una matrice utente-film (user-item matrix) **
-    val userMovieRatings = moviesDF
+    // ** Crea una matrice utente-film (user-item matrix) ** utilizzando tutto il dataset
+    val userMovieRatings = sentimentDF
       .groupBy("userId", "movieId")
       .agg(avg("rating").as("rating"))
       .na.fill(0) // Riempie i valori nulli con 0
@@ -111,19 +100,28 @@ object CollaborativeItemUser {
       )
     )
 
-    // Aggiungi alias per evitare conflitti nelle colonne durante il join
-    val recommendationsWithAliasDF1 = recommendationsWithSimilarityDF.as("df1")
-    val recommendationsWithAliasDF2 = recommendationsWithSimilarityDF.as("df2")
+    // Debug: Controlla quante raccomandazioni ci sono
+    println(s"Numero di raccomandazioni generate: ${recommendationsWithSimilarityDF.count()}")
 
-    // Fai il join con il DataFrame delle raccomandazioni
-    val predictionDF = recommendationsWithAliasDF1
-      .join(recommendationsWithAliasDF2, $"df1.movieId2" === $"df2.movieId1", "inner")
-      .groupBy("df1.movieId1")
-      .agg(sum($"df1.similarity" * $"df2.similarity").as("predictedScore"))
+    // ** Unisci le raccomandazioni con l'utente target **
+    // Filtro per l'utente target
+    val userRatings = sentimentDF.filter($"userId" === targetUserId)
+
+    // Filtra per i film che l'utente non ha visto
+    val unseenMoviesDF = recommendationsWithSimilarityDF
+      .join(userRatings, recommendationsWithSimilarityDF("movieId2") === userRatings("movieId"), "left_anti")
+
+    // Calcola la previsione per ogni film non visto
+    val recommendationsForUser = unseenMoviesDF
+      .groupBy("movieId1")
+      .agg(sum("similarity").as("predictedScore"))
       .orderBy(desc("predictedScore"))
 
+    // Debug: Controlla quante raccomandazioni ci sono per l'utente target
+    println(s"Numero di raccomandazioni per l'utente target: ${recommendationsForUser.count()}")
+
     // ** Normalizza i punteggi da 0 a 10 **
-    val scoreStats = predictionDF.agg(
+    val scoreStats = recommendationsForUser.agg(
       min("predictedScore").as("minScore"),
       max("predictedScore").as("maxScore")
     ).collect()
@@ -131,24 +129,28 @@ object CollaborativeItemUser {
     val minScore = scoreStats(0).getAs[Double]("minScore")
     val maxScore = scoreStats(0).getAs[Double]("maxScore")
 
-    val predictionWithNormalizedScoreDF = if (maxScore != minScore) {
-      predictionDF.withColumn(
+    // Debug: Verifica i valori di minScore e maxScore
+    println(s"Min Score: $minScore, Max Score: $maxScore")
+
+    val recommendationsWithNormalizedScoreDF = if (maxScore != minScore) {
+      recommendationsForUser.withColumn(
         "NormalizedScore",
-        least(bround(lit(10) * (col("predictedScore") - lit(minScore)) / (lit(maxScore) - lit(minScore)), 2), lit(10))
+        least(bround(lit(5) * (col("predictedScore") - lit(minScore)) / (lit(maxScore) - lit(minScore)), 2), lit(10))
       )
     } else {
-      predictionDF.withColumn("NormalizedScore", lit(5))
+      recommendationsForUser.withColumn("NormalizedScore", lit(5))
     }
 
-    // Visualizza le raccomandazioni normalizzate
-    predictionWithNormalizedScoreDF.select("movieId1", "NormalizedScore").show()
-
-    // Salva i risultati
-    predictionWithNormalizedScoreDF
+    // Filtra i primi N risultati per l'utente target
+    val topRecommendationsDF = recommendationsWithNormalizedScoreDF
       .select("movieId1", "NormalizedScore")
-      .write
+      .orderBy(desc("NormalizedScore"))
+      .limit(topN)
+
+    // Salva i primi N risultati in un file CSV
+    topRecommendationsDF.write
       .option("header", "true")
-      .csv(outputPath)
+      .csv(csvOutputPath)
 
     spark.stop()
   }
