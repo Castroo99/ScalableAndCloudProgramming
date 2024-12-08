@@ -1,7 +1,7 @@
 package main
 
 import SentimentAnalysisModule.SentimentCSVProcessorSpark
-import CollaborativeItemModule.CollaborativeFiltering
+import CollaborativeItemModule.CollaborativeFilteringUser
 import MatrixFactorizationModule.MatrixFactorizationRDD_ALS
 
 
@@ -11,6 +11,6 @@ object Main extends App {
   //Matrix Factorization Reccomendation
   MatrixFactorizationRDD_ALS.main(Array[String]())
   //Collaborative Filtering Recc. with MatrixFact. output
-  //CollaborativeFiltering.main(Array[String]())
+  CollaborativeFilteringUser.main(Array[String]())
   
 }

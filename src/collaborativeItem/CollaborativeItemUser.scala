@@ -1,3 +1,5 @@
+package CollaborativeItemModule
+
 import org.apache.spark.sql.{SparkSession, Row}
 import org.apache.spark.sql.functions._
 import org.apache.spark.mllib.linalg.{Vectors, Vector}
@@ -7,10 +9,19 @@ import org.apache.spark.sql.types._
 
 object CollaborativeItemUser {
   def main(args: Array[String]): Unit = {
+    var bucketName = "recommendation-system-lfag"
+	  var moviesFile = "full-dataset/movies.csv"
+	  var reccFile = "processed-dataset/user_reviews_factorized_RDD_ALS.csv"
+    var outputFile = "processed-dataset/normalized_predicted_recommendations.csv"
+
+    val basePath = s"gs://$bucketName"
+	  val datasetPath = s"$basePath/$inputFile"
+	  val outputPath = s"$basePath/$outputFile"
+
     // Crea la SparkSession
     val spark = SparkSession.builder()
       .appName("CollaborativeFiltering")
-      .master("local[*]") // Usa tutti i core disponibili
+      .master("local[4]") // Usa tutti i core disponibili
       .getOrCreate()
 
     // Importa le implicite necessarie per lavorare con DataFrame
@@ -23,13 +34,13 @@ object CollaborativeItemUser {
     val moviesDF = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
-      .csv("movies.csv")  // Adatta il percorso del tuo file
+      .csv(moviesFile)  // Adatta il percorso del tuo file
       .select("movieId", "userId", "rating")
 
     val recommendationsDF = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
-      .csv("recommendations.csv") // Adatta il percorso del tuo file
+      .csv(reccFile) // Adatta il percorso del tuo file
       .select("userId", "movieId", "recommendationValue")
 
     // Filtra i dati per l'utente specifico
@@ -137,7 +148,7 @@ object CollaborativeItemUser {
       .select("movieId1", "NormalizedScore")
       .write
       .option("header", "true")
-      .csv("normalized_predicted_recommendations.csv")
+      .csv(outputFile)
 
     spark.stop()
   }
