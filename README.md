@@ -8,6 +8,11 @@ Go to the folder where is placed the script you want to execute and run the comm
 sbt compile
 sbt run
 ``` 
+## Setup Env Table
+Inserire nelle variabili d'ambiente la coppia (chiave, valore)
+```
+SBT_OPTS, -Xmx4G -Xms2G
+```
 
 ## Setup Python Virtual Environment
 
