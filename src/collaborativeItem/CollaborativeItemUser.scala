@@ -34,13 +34,13 @@ object CollaborativeItemUser {
     val moviesDF = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
-      .csv(moviesFile)  // Adatta il percorso del tuo file
+      .csv(moviesPath)  // Adatta il percorso del tuo file
       .select("movieId", "userId", "rating")
 
     val recommendationsDF = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
-      .csv(reccFile) // Adatta il percorso del tuo file
+      .csv(reccPath) // Adatta il percorso del tuo file
       .select("userId", "movieId", "recommendationValue")
 
     // Filtra i dati per l'utente specifico
@@ -148,7 +148,7 @@ object CollaborativeItemUser {
       .select("movieId1", "NormalizedScore")
       .write
       .option("header", "true")
-      .csv(outputFile)
+      .csv(outputPath)
 
     spark.stop()
   }
