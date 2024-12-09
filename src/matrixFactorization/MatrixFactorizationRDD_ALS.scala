@@ -13,28 +13,21 @@ import kantan.csv.ops._
 import scala.math.BigDecimal.RoundingMode
 
 object MatrixFactorizationRDD_ALS {
+  //❌💪
   def main(args: Array[String]): Unit = {
-    // if (args.length < 5) {
+    // if (args.length < 4) {
     //   println("Usage: MatrixFactorizationRDD_ALS <bucketName> <sentimentFile> <outputFile>")
     //   System.exit(1)
     // }
 
     val userId_selected = args(0).toInt
     val numMoviesRec = args(1).toInt
-    val bucketName = args(2)
-    val sentimentFile = args(3)
-    val outputFile = args(4)
+    val sentimentFile = args(2)
+    val outputFile = args(3)
 
 
     print("Starting MatrixFactorizationRDD_ALS")
 
-    //var bucketName = "recommendation-system-lfag"
-    // var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
-    // var outputPath = "processed-dataset/user_reviews_factorized_RDD_ALS.csv"
-
-    // val basePath = s"gs://$bucketName"
-	  // val datasetPath = s"$basePath/$inputFile"
-	  // val outputPath = s"$basePath/$outputFile"
 
     // Crea la sessione Spark
     val spark: SparkSession = SparkSession.builder()
@@ -50,11 +43,16 @@ object MatrixFactorizationRDD_ALS {
     
     // mappa ogni riga del csv in un oggetto Rating con userId, movieId e totalScore
     val ratingsRdd: RDD[Rating] = dataRdd.map { line =>
-      val fields = line.split(",")
+     /*  val fields = line.split(",")
       val userId = fields(3).toInt
       val movieId = fields(4).toInt
       val rating = fields(0).toDouble
-      val sentimentResult = fields(2).toDouble
+      val sentimentResult = fields(2).toDouble */
+      val fields = line.split(",")
+      val userId = fields(3).toInt
+      val movieId = fields(0).toInt
+      val rating = fields(1).toDouble
+      val sentimentResult = fields(4).toDouble
       val totalScore = (rating * 0.5) + (sentimentResult * 0.5)
       Rating(userId, movieId, totalScore)
     }//.repartition(numPartitions)

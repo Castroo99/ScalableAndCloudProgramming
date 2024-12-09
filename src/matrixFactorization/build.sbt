@@ -5,7 +5,7 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-mllib" % "3.4.0"
 )
 
-libraryDependencies += "com.github.tototoshi" %% "scala-csv" % "1.3.6" //% "provided"
+libraryDependencies += "com.github.tototoshi" %% "scala-csv" % "1.3.6" 
 
 // Google Cloud Storage client library
 libraryDependencies += "com.google.cloud" % "google-cloud-storage" % "2.27.1"

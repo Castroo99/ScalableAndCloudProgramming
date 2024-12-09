@@ -8,18 +8,16 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.types._
 
 object CollaborativeItemUser {
-  def main(args: Array[String], csvInputPath: String, csvOutputPath: String, targetUserId: String, n: Int ): Unit = {
-    var bucketName = "recommendation-system-lfag"
-	  var moviesFile = "full-dataset/movies.csv"
-    var outputFile = "processed-dataset/normalized_predicted_recommendations.csv"
-
-    val basePath = s"gs://$bucketName"
-	  val datasetPath = s"$basePath/$inputFile"
-	  val outputPath = s"$basePath/$outputFile"
+  def main(args: Array[String]): Unit = {
+  //❌💪
+    var targetUserId = args(0).toInt 
+    var topN = args(1).toInt
+    var csvInputPath = args(2)
+    var csvOutputPath = args(3)
 
     // Crea la SparkSession
     val spark = SparkSession.builder()
-      .appName("CollaborativeFiltering")
+      .appName("ReccSys")
       .master("local[4]") // Usa tutti i core disponibili
       .getOrCreate()
 

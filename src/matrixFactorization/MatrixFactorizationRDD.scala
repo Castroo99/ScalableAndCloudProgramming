@@ -1,3 +1,5 @@
+package  MatrixFactorizationModule
+
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
@@ -6,6 +8,9 @@ import org.apache.spark.mllib.recommendation.Rating
 import scala.util.Random
 import com.github.tototoshi.csv._
 import scala.math.BigDecimal.RoundingMode
+import com.google.cloud.storage.{BlobInfo, Storage, StorageOptions}
+import java.nio.channels.Channels
+import java.io.ByteArrayOutputStream
 
 object MatrixFactorizationRDD {
   def main(args: Array[String]): Unit = {
@@ -17,9 +22,8 @@ object MatrixFactorizationRDD {
 
     val userId_selected = args(0).toInt
     val numMoviesRec = args(1).toInt
-    val bucketName = args(2)
-    val sentimentFile = args(3)
-    val outputFile = args(4)
+    val sentimentFile = args(2)
+    val outputFile = args(3)
 
     // var bucketName = "recommendation-system-lfag"
 	  // var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
@@ -50,7 +54,7 @@ object MatrixFactorizationRDD {
     // mapping movieId-index per salvataggio movieId originali
     val movieIdToIndex = dataRdd.map { line =>
       val fields = line.split(",")
-      fields(4).toInt
+      fields(0).toInt
     }.distinct().zipWithIndex().collect().toMap
     val indexToMovieId = movieIdToIndex.map(_.swap)
 
@@ -58,9 +62,9 @@ object MatrixFactorizationRDD {
     val ratingsRdd: RDD[Rating] = dataRdd.map { line =>
       val fields = line.split(",")
       val userId = userIdToIndex(fields(3).toInt).toInt
-      val movieId = movieIdToIndex(fields(4).toInt).toInt
-      val rating = fields(0).toDouble
-      val sentimentResult = fields(2).toDouble
+      val movieId = movieIdToIndex(fields(0).toInt).toInt
+      val rating = fields(1).toDouble
+      val sentimentResult = fields(4).toDouble
       val totalScore = (rating * 0.5) + (sentimentResult * 0.5)
       Rating(userId, movieId, totalScore)
     }
@@ -172,7 +176,7 @@ object MatrixFactorizationRDD {
     val filteredRecs: RDD[(Int, Int, Double)] = recommendationsRdd
       .filter { case (userId, _, _) => userId == userId_selected }
 
-    saveRecommendationsToCsv(filteredRecs, outputFile)
+    saveRecommendationsToGcs(filteredRecs, outputFile)
 
     spark.stop()
   }
