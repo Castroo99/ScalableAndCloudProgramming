@@ -73,10 +73,10 @@ object CollaborativeItemUser {
     // ** Calcola le predizioni basate sulla similarità tra i film **
     val recommendationsRDD = similarityMatrix.entries
       .map { entry =>
-        // Usa la mappatura per convertire gli indici nei movieId originali
-        val movieId1 = movieIdMappingBroadcast.value(entry.i)
-        val movieId2 = movieIdMappingBroadcast.value(entry.j)
-        (movieId1, movieId2, entry.value)
+        for {
+          movieId1 <- movieIdMapping.get(entry.i)
+          movieId2 <- movieIdMapping.get(entry.j)
+        } yield (movieId1, movieId2, entry.value)
       }
 
     // ** Converte RDD[(String, String, Double)] in un DataFrame **
