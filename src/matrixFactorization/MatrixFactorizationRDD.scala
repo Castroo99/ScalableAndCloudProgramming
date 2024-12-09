@@ -10,6 +10,17 @@ import scala.math.BigDecimal.RoundingMode
 object MatrixFactorizationRDD {
   def main(args: Array[String]): Unit = {
 
+    // if (args.length < 5) {
+    //   println("Usage: MatrixFactorizationRDD <bucketName> <sentimentFile> <outputFile>")
+    //   System.exit(1)
+    // }
+
+    val userId_selected = args(0).toInt
+    val numMoviesRec = args(1).toInt
+    val bucketName = args(2)
+    val sentimentFile = args(3)
+    val outputFile = args(4)
+
     // var bucketName = "recommendation-system-lfag"
 	  // var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
     // var outputFile = "processed-dataset/user_reviews_factorizedRDD.csv"
@@ -18,15 +29,12 @@ object MatrixFactorizationRDD {
 	  // val datasetPath = s"$basePath/$inputFile"
 	  // val outputPath = s"$basePath/$outputFile"
 
-    val inputFile = "../processed/user_reviews_with_sentiment.csv"
-    val outputFile = "../processed/user_reviews_factorizedRDD.csv"
-
     val spark: SparkSession = SparkSession.builder()
         .appName("MatrixFactorizationRDD")
-        .master("local[*]")
+        .master("local[4]")
         .getOrCreate()
 
-    val rawRdd: RDD[String] = spark.sparkContext.textFile(inputFile)
+    val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
 
     // header rimosso da RDD
     val header = rawRdd.first()
@@ -146,7 +154,7 @@ object MatrixFactorizationRDD {
           .mapValues(_.head) // rimossi duplicati per movieId
           .values.toList   
           .sortBy(-_._3)   // score decrescente
-          .take(5))        // primi 5 film
+          .take(numMoviesRec))        // primi 5 film
 
 
     val recommendations = top5Recs.flatMap { case (userIndex, recs) =>
@@ -160,7 +168,11 @@ object MatrixFactorizationRDD {
     }
 
     val recommendationsRdd = spark.sparkContext.parallelize(recommendations.collect()) 
-    saveRecommendationsToCsv(recommendationsRdd, outputFile)
+
+    val filteredRecs: RDD[(Int, Int, Double)] = recommendationsRdd
+      .filter { case (userId, _, _) => userId == userId_selected }
+
+    saveRecommendationsToCsv(filteredRecs, outputFile)
 
     spark.stop()
   }
@@ -171,13 +183,47 @@ object MatrixFactorizationRDD {
     Array.fill(numRows, numCols)(Random.nextDouble() * 1)
   }
 
-  def saveRecommendationsToCsv(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
-    val writer = CSVWriter.open(new java.io.File(outputPath))
-    writer.writeRow(Seq("userId", "movieId", "totalScore"))
+  // def saveRecommendationsToCsv(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
+  //   val writer = CSVWriter.open(new java.io.File(outputPath))
+  //   writer.writeRow(Seq("userId", "movieId", "totalScore"))
     
-    writer.writeAll(recommendations.collect().map {
-      case (userId, movieId, totalScore) =>
-        Seq(userId.toString, movieId.toString, totalScore.toString)
-    })
+  //   writer.writeAll(recommendations.collect().map {
+  //     case (userId, movieId, totalScore) =>
+  //       Seq(userId.toString, movieId.toString, totalScore.toString)
+  //   })
+  // }
+
+  
+  def saveRecommendationsToGcs(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
+    print("Starting MatrixFactorizationRDD.saveRecommendationsToGcs")
+
+    // Convert recommendations to CSV format in memory
+    val csvData = new ByteArrayOutputStream()
+    val writer = CSVWriter.open(csvData)
+
+    // Scrive header
+    writer.writeRow(Seq("userId", "movieId", "totalScore"))
+
+    // Scrive i dati
+    writer.writeAll(
+      recommendations.collect().map {
+        case (userId, movieId, totalScore) => Seq(userId.toString, movieId.toString, totalScore.toString)
+      }
+    )
+
+    writer.close()
+
+    // Configurazione e salvataggio su GCS
+    val storage: Storage = StorageOptions.getDefaultInstance.getService
+    val uri = new java.net.URI(outputPath)
+    val bucketName = uri.getHost
+    val objectName = uri.getPath.stripPrefix("/")
+
+    val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
+    val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
+    gcsWriter.write(csvData.toByteArray)
+    gcsWriter.close()
+
+    println(s"Recommendations saved to $outputPath")
   }
 }

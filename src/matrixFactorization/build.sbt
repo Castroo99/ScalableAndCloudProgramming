@@ -17,4 +17,4 @@ libraryDependencies += "com.nrinaudo" %% "kantan.csv" % "0.6.1"
 libraryDependencies += "org.apache.spark" %% "spark-core" % "3.5.0"
 
 
-mainClass in Compile := Some("MatrixFactorizationRDD")
+mainClass in Compile := Some("MatrixFactorizationRDD_ALS")

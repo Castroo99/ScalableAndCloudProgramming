@@ -10,28 +10,39 @@ import java.nio.channels.Channels
 import java.io.ByteArrayOutputStream
 import kantan.csv._
 import kantan.csv.ops._
+import scala.math.BigDecimal.RoundingMode
 
 object MatrixFactorizationRDD_ALS {
   def main(args: Array[String]): Unit = {
+    // if (args.length < 5) {
+    //   println("Usage: MatrixFactorizationRDD_ALS <bucketName> <sentimentFile> <outputFile>")
+    //   System.exit(1)
+    // }
+
+    val userId_selected = args(0).toInt
+    val numMoviesRec = args(1).toInt
+    val bucketName = args(2)
+    val sentimentFile = args(3)
+    val outputFile = args(4)
+
+
     print("Starting MatrixFactorizationRDD_ALS")
 
-    var bucketName = "recommendation-system-lfag"
-	  var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
-    var outputFile = "processed-dataset/user_reviews_factorized_RDD_ALS.csv"
+    //var bucketName = "recommendation-system-lfag"
+    // var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
+    // var outputPath = "processed-dataset/user_reviews_factorized_RDD_ALS.csv"
 
-    val basePath = s"gs://$bucketName"
-	  val datasetPath = s"$basePath/$inputFile"
-	  val outputPath = s"$basePath/$outputFile"
+    // val basePath = s"gs://$bucketName"
+	  // val datasetPath = s"$basePath/$inputFile"
+	  // val outputPath = s"$basePath/$outputFile"
 
     // Crea la sessione Spark
     val spark: SparkSession = SparkSession.builder()
       .appName("ReccSys")
       .master("local[4]") // 4 thread
       .getOrCreate()
-      
-    //var numPartitions = 3
-    
-    val rawRdd: RDD[String] = spark.sparkContext.textFile(datasetPath)
+          
+    val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
     
     // header rimosso da RDD
     val header = rawRdd.first()
@@ -57,26 +68,36 @@ object MatrixFactorizationRDD_ALS {
     val model = ALS.train(trainingRdd, rank, numIterations, lambda)
 
     // generarazione di 5 film raccomandati per ogni utente
-    val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(5)
+    val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(numMoviesRec)
 
-    saveRecommendationsToGcs(userRecs, outputPath)
+    // recs filtrate per utente selezionato
+    val filteredRecs: RDD[(Int, Array[Rating])] = userRecs.filter {
+      case (userId, _) => userId == userId_selected
+    }.map {case (userId, recs) => (userId, recs.map { r =>
+          val roundedRating = BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+          Rating(r.user, r.product, roundedRating)
+      })
+    }
+
+    saveRecommendationsToGcs(filteredRecs, outputFile)
 
     print("End MatrixFactorizationRDD_ALS")
   }
-/* 
-  def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
-    val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
-      case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
-    }
 
-    val writer = CSVWriter.open(new java.io.File(outputPath))
-    writer.writeRow(Seq("userId", "movieId", "totalScore"))
+  // def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
+  //   val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
+  //     case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
+  //   }
+
+  //   val writer = CSVWriter.open(new java.io.File(outputPath))
+  //   writer.writeRow(Seq("userId", "movieId", "totalScore"))
     
-    writer.writeAll(recommendations.collect().map {
-      case (userId, movieId, totalScore) =>
-        Seq(userId.toString, movieId.toString, totalScore.toString)
-    })
-    } */
+  //   writer.writeAll(recommendations.collect().map {
+  //     case (userId, movieId, totalScore) =>
+  //       Seq(userId.toString, movieId.toString, totalScore.toString)
+  //   })
+  // }
+
   def saveRecommendationsToGcs(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     print("Starting MatrixFactorizationRDD_ALS.saveRecommendationsToGcs")
     val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
