@@ -15,6 +15,10 @@ object CollaborativeItemUser {
     var csvInputPath = args(2)
     var csvOutputPath = args(3)
 
+    val basePath = s"gs://$bucketName"
+    val datasetPath = s"$basePath/$csvInputPath"
+    val outputPath = s"$basePath/$csvOutputPath"
+
     // Crea la SparkSession
     val spark = SparkSession.builder()
       .appName("ReccSys")
