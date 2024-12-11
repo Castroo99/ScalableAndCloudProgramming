@@ -2,7 +2,7 @@ package  MatrixFactorizationModule
 
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{SparkSession, DataFrame}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.recommendation.Rating
 import scala.util.Random
@@ -19,52 +19,73 @@ object MatrixFactorizationRDD {
     //   println("Usage: MatrixFactorizationRDD <bucketName> <sentimentFile> <outputFile>")
     //   System.exit(1)
     // }
+    matrixFactorizationRdds(userId_selected, numMoviesRec, sentimentDF, outputFile)
+    }
 
-    val userId_selected = args(0).toInt
-    val numMoviesRec = args(1).toInt
-    val sentimentFile = args(2)
-    val outputFile = args(3)
-
-    // var bucketName = "recommendation-system-lfag"
-	  // var inputFile = "processed-dataset/user_reviews_with_sentiment.csv"
-    // var outputFile = "processed-dataset/user_reviews_factorizedRDD.csv"
-
-    // val basePath = s"gs://$bucketName"
-	  // val datasetPath = s"$basePath/$inputFile"
-	  // val outputPath = s"$basePath/$outputFile"
+   def matrixFactorizationRdd(userId_selected: Int, numMoviesRec: Int, sentimentDF: DataFrame, outputFile: String): Unit = {
+    print("Starting MatrixFactorizationRDD")
 
     val spark: SparkSession = SparkSession.builder()
-        .appName("MatrixFactorizationRDD")
-        .master("local[4]")
-        .getOrCreate()
+    .appName("MatrixFactorizationRDD")
+    .master("local[4]")
+    .getOrCreate()
 
-    val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
+    // val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
 
-    // header rimosso da RDD
-    val header = rawRdd.first()
-    val dataRdd: RDD[String] = rawRdd.filter(line => line != header)
+    // // header rimosso da RDD
+    // val header = rawRdd.first()
+    // val dataRdd: RDD[String] = rawRdd.filter(line => line != header)
     
+    // // mapping userId-index per salvataggio userId originali
+    // val userIdToIndex = inputDf.rdd.map { line =>
+    //   val fields = line.split(",")
+    //   fields(3).toInt
+    // }.distinct().zipWithIndex().collect().toMap
+    // val indexToUserId = userIdToIndex.map(_.swap)
+    
+    // // mapping movieId-index per salvataggio movieId originali
+    // val movieIdToIndex = dataRdd.map { line =>
+    //   val fields = line.split(",")
+    //   fields(0).toInt
+    // }.distinct().zipWithIndex().collect().toMap
+    // val indexToMovieId = movieIdToIndex.map(_.swap)
+
     // mapping userId-index per salvataggio userId originali
-    val userIdToIndex = dataRdd.map { line =>
-      val fields = line.split(",")
-      fields(3).toInt
-    }.distinct().zipWithIndex().collect().toMap
-    val indexToUserId = userIdToIndex.map(_.swap)
+    val userIdToIndex = sentimentDF
+    .select("userId")
+    .distinct()
+    .rdd
+    .map(row => row.getInt(0)) 
+    .zipWithIndex()
+    .collect()
+    .toMap
     
+    val indexToUserId = userIdToIndex.map(_.swap)
+
     // mapping movieId-index per salvataggio movieId originali
-    val movieIdToIndex = dataRdd.map { line =>
-      val fields = line.split(",")
-      fields(0).toInt
-    }.distinct().zipWithIndex().collect().toMap
+    val movieIdToIndex = sentimentDF
+      .select("movieId")
+      .distinct()
+      .rdd
+      .map(row => row.getInt(0))
+      .zipWithIndex()
+      .collect()
+      .toMap
+
     val indexToMovieId = movieIdToIndex.map(_.swap)
 
     // mappa ogni riga del csv in un oggetto Rating con userId, movieId e totalScore
-    val ratingsRdd: RDD[Rating] = dataRdd.map { line =>
-      val fields = line.split(",")
-      val userId = userIdToIndex(fields(3).toInt).toInt
-      val movieId = movieIdToIndex(fields(0).toInt).toInt
-      val rating = fields(1).toDouble
-      val sentimentResult = fields(4).toDouble
+    val ratingsRdd: RDD[Rating] = sentimentDF.rdd.map { row =>
+      val userId = userIdToIndex(row.getInt(row.fieldIndex("userId"))).toInt
+      val movieId = movieIdToIndex(row.getInt(row.fieldIndex("movieId"))).toInt
+      val rating = row.getDouble(row.fieldIndex("rating"))
+      val sentimentResult = row.getDouble(row.fieldIndex("sentimentResult"))
+    // line =>
+    //   val fields = line.split(",")
+    //   val userId = userIdToIndex(fields(3).toInt).toInt
+    //   val movieId = movieIdToIndex(fields(0).toInt).toInt
+    //   val rating = fields(1).toDouble
+    //   val sentimentResult = fields(4).toDouble
       val totalScore = (rating * 0.5) + (sentimentResult * 0.5)
       Rating(userId, movieId, totalScore)
     }
@@ -176,7 +197,7 @@ object MatrixFactorizationRDD {
     val filteredRecs: RDD[(Int, Int, Double)] = recommendationsRdd
       .filter { case (userId, _, _) => userId == userId_selected }
 
-    saveRecommendationsToGcs(filteredRecs, outputFile)
+    saveRecommendationsToCsv(filteredRecs, outputFile)
 
     spark.stop()
   }
@@ -187,47 +208,47 @@ object MatrixFactorizationRDD {
     Array.fill(numRows, numCols)(Random.nextDouble() * 1)
   }
 
-  // def saveRecommendationsToCsv(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
-  //   val writer = CSVWriter.open(new java.io.File(outputPath))
-  //   writer.writeRow(Seq("userId", "movieId", "totalScore"))
+  def saveRecommendationsToCsv(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
+    val writer = CSVWriter.open(new java.io.File(outputPath))
+    writer.writeRow(Seq("userId", "movieId", "totalScore"))
     
-  //   writer.writeAll(recommendations.collect().map {
-  //     case (userId, movieId, totalScore) =>
-  //       Seq(userId.toString, movieId.toString, totalScore.toString)
-  //   })
-  // }
+    writer.writeAll(recommendations.collect().map {
+      case (userId, movieId, totalScore) =>
+        Seq(userId.toString, movieId.toString, totalScore.toString)
+    })
+  }
 
   
-  def saveRecommendationsToGcs(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
-    print("Starting MatrixFactorizationRDD.saveRecommendationsToGcs")
+  // def saveRecommendationsToGcs(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
+  //   print("Starting MatrixFactorizationRDD.saveRecommendationsToGcs")
 
-    // Convert recommendations to CSV format in memory
-    val csvData = new ByteArrayOutputStream()
-    val writer = CSVWriter.open(csvData)
+  //   // Convert recommendations to CSV format in memory
+  //   val csvData = new ByteArrayOutputStream()
+  //   val writer = CSVWriter.open(csvData)
 
-    // Scrive header
-    writer.writeRow(Seq("userId", "movieId", "totalScore"))
+  //   // Scrive header
+  //   writer.writeRow(Seq("userId", "movieId", "totalScore"))
 
-    // Scrive i dati
-    writer.writeAll(
-      recommendations.collect().map {
-        case (userId, movieId, totalScore) => Seq(userId.toString, movieId.toString, totalScore.toString)
-      }
-    )
+  //   // Scrive i dati
+  //   writer.writeAll(
+  //     recommendations.collect().map {
+  //       case (userId, movieId, totalScore) => Seq(userId.toString, movieId.toString, totalScore.toString)
+  //     }
+  //   )
 
-    writer.close()
+  //   writer.close()
 
-    // Configurazione e salvataggio su GCS
-    val storage: Storage = StorageOptions.getDefaultInstance.getService
-    val uri = new java.net.URI(outputPath)
-    val bucketName = uri.getHost
-    val objectName = uri.getPath.stripPrefix("/")
+  //   // Configurazione e salvataggio su GCS
+  //   val storage: Storage = StorageOptions.getDefaultInstance.getService
+  //   val uri = new java.net.URI(outputPath)
+  //   val bucketName = uri.getHost
+  //   val objectName = uri.getPath.stripPrefix("/")
 
-    val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
-    val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
-    gcsWriter.write(csvData.toByteArray)
-    gcsWriter.close()
+  //   val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
+  //   val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
+  //   gcsWriter.write(csvData.toByteArray)
+  //   gcsWriter.close()
 
-    println(s"Recommendations saved to $outputPath")
-  }
+  //   println(s"Recommendations saved to $outputPath")
+  // }
 }
