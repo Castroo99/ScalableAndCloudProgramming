@@ -21,14 +21,15 @@ object MatrixFactorizationRDD_ALS {
     //   System.exit(1)
     // }
 
-    val userId_selected = args(0).toInt
-    val numMoviesRec = args(1).toInt
-    val sentimentDF = args(2)
-    val outputFile = args(3)
+    // val userId_selected = args(0).toInt
+    // val numMoviesRec = args(1).toInt
+    // val sentimentDF = args(2)
+    // val outputFile = args(3)
+    // matrixFactorizationRDDAls(userId_selected, numMoviesRec, sentimentDF, outputFile)
+  }
 
+  def matrixFactorizationRDDAls(userId_selected: Int, numMoviesRec: Int, sentimentDF: DataFrame, outputFile: String): Unit = {
     print("Starting MatrixFactorizationRDD_ALS")
-
-
     // Crea la sessione Spark
     val spark: SparkSession = SparkSession.builder()
       .appName("ReccSys")
@@ -37,7 +38,6 @@ object MatrixFactorizationRDD_ALS {
     
     import spark.implicits._
 
-          
     // val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
     
     // // header rimosso da RDD
@@ -47,9 +47,9 @@ object MatrixFactorizationRDD_ALS {
     // mappa ogni riga del csv in un oggetto Rating con userId, movieId e totalScore
     val ratingsRdd: RDD[Rating] = sentimentDF.rdd.map { 
       row =>
-      val userId = row.getAs[Int]("userId")
-      val movieId = row.getAs[Int]("movieId")
-      val rating = row.getAs[Double]("rating")
+      val userId = row.getAs[String]("userId").toInt
+      val movieId = row.getAs[String]("movieId").toInt
+      val rating = row.getAs[String]("rating").toDouble
       val sentimentResult = row.getAs[Double]("sentimentResult")
       //line =>
       // val fields = line.split(",")
@@ -71,7 +71,6 @@ object MatrixFactorizationRDD_ALS {
 
     // generarazione di 5 film raccomandati per ogni utente
     val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(numMoviesRec)
-
     // recs filtrate per utente selezionato
     val filteredRecs: RDD[(Int, Array[Rating])] = userRecs.filter {
       case (userId, _) => userId == userId_selected
@@ -81,24 +80,25 @@ object MatrixFactorizationRDD_ALS {
       })
     }
 
-    saveRecommendationsToGcs(filteredRecs, outputFile)
-
+    saveRecommendationsToCsv(filteredRecs, outputFile)
     print("End MatrixFactorizationRDD_ALS")
   }
 
-  // def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
-  //   val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
-  //     case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
-  //   }
+  def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
+    print("Starting saveRecommendationsToCsv")
+    val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
+      case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
+    }
 
-  //   val writer = CSVWriter.open(new java.io.File(outputPath))
-  //   writer.writeRow(Seq("userId", "movieId", "totalScore"))
+    val writer = CSVWriter.open(new java.io.File(outputPath))
+    writer.writeRow(Seq("userId", "movieId", "totalScore"))
     
-  //   writer.writeAll(recommendations.collect().map {
-  //     case (userId, movieId, totalScore) =>
-  //       Seq(userId.toString, movieId.toString, totalScore.toString)
-  //   })
-  // }
+    writer.writeAll(recommendations.collect().map {
+      case (userId, movieId, totalScore) =>
+        Seq(userId.toString, movieId.toString, totalScore.toString)
+    })
+    print("Ending saveRecommendationsToCsv")
+  }
 
   def saveRecommendationsToGcs(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     print("Starting MatrixFactorizationRDD_ALS.saveRecommendationsToGcs")
@@ -110,12 +110,8 @@ object MatrixFactorizationRDD_ALS {
     val csvData = new ByteArrayOutputStream()
     val writer = CSVWriter.open(csvData)
 
-    // val writer = CSVWriter.open(new java.io.File(outputPath))
-
-    // Scrive header
     writer.writeRow(Seq("userId", "movieId", "totalScore"))
 
-    // Scrive i dati
     writer.writeAll(
       recommendations.collect().map {
         case (userId, movieId, totalScore) => Seq(userId.toString, movieId.toString, totalScore.toString)

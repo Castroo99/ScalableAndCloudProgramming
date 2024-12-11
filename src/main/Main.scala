@@ -3,6 +3,7 @@ package main
 import SentimentAnalysisModule.SentimentCSVProcessorSpark
 import CollaborativeItemModule.CollaborativeItemUser
 import MatrixFactorizationModule.{MatrixFactorizationRDD_ALS, MatrixFactorizationRDD}
+import org.apache.spark.sql.{DataFrame}
 
 
 object Main extends App {
@@ -17,25 +18,26 @@ object Main extends App {
   val collabOutputPath = s"$basePath/processed-dataset/normalized_predicted_recommendations.csv"
 
   //Augment Dataset with Sentiment Analysis
-  SentimentCSVProcessorSpark.main(Array(
+  var sentimentDF = SentimentCSVProcessorSpark.processCSV(
     sentimentInputPath,
     sentimentOutputPath
-  )) 
+  ) 
+  sentimentDF.show(100, truncate = false)
 
   //Matrix Factorization Recommendation
-  MatrixFactorizationRDD.main(Array(
-    userId_selected.toString, 
-    numMoviesRec.toString,
-    sentimentOutputPath,
+  MatrixFactorizationRDD_ALS.matrixFactorizationRDDAls(
+    userId_selected, 
+    numMoviesRec,
+    sentimentDF,
     matrixOutputPath
-  ))
+  )
   
   //Collaborative Filtering Recc. with MatrixFact. output
-  CollaborativeItemUser.main(Array(
-    userId_selected.toString, 
-    numMoviesRec.toString,
-    sentimentOutputPath,
-    collabOutputPath
-  ))
+  // CollaborativeItemUser.main(Array(
+  //   userId_selected.toString, 
+  //   numMoviesRec.toString,
+  //   sentimentOutputPath,
+  //   collabOutputPath
+  // ))
   
 }

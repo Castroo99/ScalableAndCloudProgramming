@@ -5,22 +5,22 @@ import edu.stanford.nlp.neural.rnn.RNNCoreAnnotations
 import edu.stanford.nlp.pipeline.{Annotation, StanfordCoreNLP}
 import edu.stanford.nlp.sentiment.SentimentCoreAnnotations
 import org.apache.spark.sql.{SparkSession, DataFrame, functions => F}
-
 import com.google.cloud.storage.{BlobInfo, Storage, StorageOptions}
-import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 import com.github.tototoshi.csv.CSVWriter
 import java.nio.channels.Channels
 import java.util.Properties
-import java.io.ByteArrayOutputStream
-import java.net.URI
-
+import java.io.{File, FileOutputStream, BufferedOutputStream, FileInputStream, BufferedInputStream}
+import java.nio.file.{Files, Paths, StandardCopyOption}
+import scala.math.BigDecimal.RoundingMode
+import scala.collection.JavaConverters._
+import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 
 object SentimentCSVProcessorSpark {
 
   // Crea una sessione Spark
   val spark: SparkSession = SparkSession.builder()
     .appName("ReccSys")
-    .master("local[4]") // Usa 4 thread
+    .master("local[4]")
     .getOrCreate()
 
   val props = new Properties()
@@ -51,60 +51,59 @@ object SentimentCSVProcessorSpark {
     if (sentimentScores.isEmpty) 3.0 else sentimentScores.sum / sentimentScores.size
   }
 
-  // Funzione per salvare il DataFrame su GCS
-  def saveDataFrameToGcs(df: DataFrame, outputPath: String): Unit = {
-    println("Starting saveDataFrameToGcs")
-
-    // Configura il writer CSV
-    val csvData = new ByteArrayOutputStream()
-    val writer = CSVWriter.open(csvData)
-
-    // Scrive l'intestazione
-    val header = df.columns
-    writer.writeRow(header)
-
-    // Scrive i dati
-    df.collect().foreach { row =>
-      writer.writeRow(row.toSeq.map(_.toString))
+  def saveDataFrameToGcs(dataFrame: DataFrame, outputPath: String): Unit = {
+    try {
+      // Save the DataFrame as a CSV file to the specified GCS path
+      dataFrame
+        .coalesce(1) // Combine partitions to create a single output file
+        .write
+        .option("header", "true") // Include header in the CSV
+        .mode("overwrite") // Overwrite existing file if it exists
+        .csv(outputPath) // Write to the specified GCS path
+      
+      println(s"DataFrame successfully saved to $outputPath")
+    } catch {
+      case e: Exception => 
+        println(s"Error saving DataFrame to GCS: ${e.getMessage}")
+        e.printStackTrace()
     }
-
-    writer.close()
-
-    // Configurazione e salvataggio su GCS
-    val storage: Storage = StorageOptions.getDefaultInstance.getService
-    val uri = new java.net.URI(outputPath)
-    val bucketName = uri.getHost
-    val objectName = uri.getPath.stripPrefix("/")
-
-    val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
-    val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
-    gcsWriter.write(csvData.toByteArray)
-    gcsWriter.close()
-
-    println(s"DataFrame saved to $outputPath")
   }
 
   // Funzione per processare il CSV e aggiungere il risultato del sentiment
-  def processCSV(inputFile: String, outputPath: String): Unit = {
+  def processCSV(inputFile: String, outputPath: String): DataFrame = {
+    // Aggiungi il tempo di inizio
+    val startTime = System.nanoTime()
+
     // Carica il CSV in un DataFrame di Spark
     val df = spark.read.option("header", "true").csv(inputFile)
 
     // Definisci una UDF (User Defined Function) per calcolare il sentiment
     val sentimentUDF = F.udf((quote: String) => {
-      if (quote != null && quote.nonEmpty) extractSentiment(quote) else 3.0
+      if (quote != null && quote.nonEmpty) {
+        val sentiment = extractSentiment(quote)
+        BigDecimal(sentiment).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+      } else {
+        3.0
+      }
     })
 
     // Applica la UDF al DataFrame per creare la nuova colonna 'sentimentResult'
-    val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote")))
-    val finalDF = resultDF.drop("quote")
-
+    val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
     // Persisti il DataFrame in memoria
-    //val cachedDF = finalDF.cache()
+    // val cachedDF = resultDF.cache()
 
     // Stampa una parte del DataFrame per verificare i risultati
     //cachedDF.show(20, truncate = false)
 
-    saveDataFrameToGcs(finalDF, outputPath)
+    //saveDataFrameToGcs(finalDF, outputPath)
+    
+    // Aggiungi il tempo di fine
+    val endTime = System.nanoTime()
+    // Calcola e stampa il tempo di esecuzione
+    val duration = (endTime - startTime) / 1e9d // In secondi
+    println(s"Tempo di esecuzione: $duration secondi")
+
+    resultDF
   }
   
 
@@ -114,17 +113,7 @@ object SentimentCSVProcessorSpark {
 	  val datasetPath = args(0)
 	  val outputPath = args(1)
 
-    // Aggiungi il tempo di inizio
-    val startTime = System.nanoTime()
-
     // Chiamata alla funzione per processare il CSV
     processCSV(datasetPath, outputPath)
-
-    // Aggiungi il tempo di fine
-    val endTime = System.nanoTime()
-
-    // Calcola e stampa il tempo di esecuzione
-    val duration = (endTime - startTime) / 1e9d // In secondi
-    println(s"Tempo di esecuzione: $duration secondi")
   }
 }
