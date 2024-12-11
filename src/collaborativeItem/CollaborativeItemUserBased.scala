@@ -14,8 +14,8 @@ object CollaborativeFilteringDF {
     Logger.getLogger("org").setLevel(Level.ERROR)
     println("Jar Auto partitions")
 
-    var trainName = "movie_reviews_with_random.csv"
-    var outputFile = "recommendations.csv"
+    var trainName = csvInputPath
+    var outputFile = csvOutputPath
 
     if (args.length > 0) {
       trainName = args(0)
@@ -51,13 +51,19 @@ object CollaborativeFilteringDF {
 
     // Preprocessing dei dati: converti i rating in tipo Double
     val ratingsDF = ratings
-      .select(col("movieId"), col("userId"), col("rating").cast("Double"))
+      .select(col("movieId"), col("userId"), col("rating").cast("Double"), col("sentimentResult").cast("Double"))
+
+    // Aggiungi una nuova colonna con il calcolo richiesto
+    val updatedRatingsDF = ratingsDF.withColumn(
+      "rating",
+      col("rating") * 0.5 + col("sentimentResult") * 0.5
+    )
 
     println(s"Compute similarity for user $targetUser...")
 
     // Filtra solo i dati relativi all'utente target e calcola la similarità
-    val targetRatings = ratingsDF.filter($"userId" === targetUser).alias("target")
-    val similarity = ratingsDF
+    val targetRatings = updatedRatingsDF.filter($"userId" === targetUser).alias("target")
+    val similarity = updatedRatingsDF
       .alias("others")
       .join(targetRatings, $"target.movieId" === $"others.movieId" && $"target.userId" =!= $"others.userId")
       .groupBy($"others.userId")
@@ -74,7 +80,7 @@ object CollaborativeFilteringDF {
 
     // Calcola le raccomandazioni per l'utente target
     val recommendations = similarity
-      .join(ratingsDF.alias("others"), $"similarUserId" === $"others.userId")
+      .join(updatedRatingsDF.alias("others"), $"similarUserId" === $"others.userId")
       .filter(!$"others.movieId".isin(targetRatings.select("movieId").collect().map(_.getString(0)): _*))
       .groupBy($"others.movieId")
       .agg(
