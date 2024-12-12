@@ -1,119 +1,99 @@
 package SentimentAnalysisModule
-
-import edu.stanford.nlp.ling.CoreAnnotations
-import edu.stanford.nlp.neural.rnn.RNNCoreAnnotations
-import edu.stanford.nlp.pipeline.{Annotation, StanfordCoreNLP}
-import edu.stanford.nlp.sentiment.SentimentCoreAnnotations
-import org.apache.spark.sql.{SparkSession, DataFrame, functions => F}
+ 
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.SparkContext
+import org.apache.spark.rdd.RDD
+import com.johnsnowlabs.nlp.pretrained.PretrainedPipeline
 import com.google.cloud.storage.{BlobInfo, Storage, StorageOptions}
-import com.github.tototoshi.csv.CSVWriter
 import java.nio.channels.Channels
-import java.util.Properties
-import java.io.{File, FileOutputStream, BufferedOutputStream, FileInputStream, BufferedInputStream}
-import java.nio.file.{Files, Paths, StandardCopyOption}
-import scala.math.BigDecimal.RoundingMode
-import scala.collection.JavaConverters._
-import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
-
+ 
 object SentimentCSVProcessorSpark {
-
-  // Crea una sessione Spark
-  val spark: SparkSession = SparkSession.builder()
-    .appName("ReccSys")
-    .master("local[4]")
-    .getOrCreate()
-
-  val props = new Properties()
-  props.setProperty("annotators", "tokenize, ssplit, parse, sentiment")
-  val pipeline: StanfordCoreNLP = new StanfordCoreNLP(props)
-
-  // Funzione per ottenere il punteggio del sentiment in una scala da 1 a 5
-  def getSentimentScore(predictedClass: Int): Double = {
-    predictedClass match {
-      case 0 => 1.0  // Molto negativo
-      case 1 => 2.0  // Negativo
-      case 2 => 3.0  // Neutro
-      case 3 => 4.0  // Positivo
-      case 4 => 5.0  // Molto positivo
-      case _ => 3.0  // Default neutro
-    }
+  def main(args: Array[String]): Unit = {
+    val sentimentInputPath = "gs://your-bucket/input/user_reviews_final_sampled.csv"
+    val sentimentOutputPath = "gs://your-bucket/output/user_reviews_with_sentiment.csv"
+    processCSV(sentimentInputPath, sentimentOutputPath)
   }
+ 
+  def processCSV(sentimentInputPath: String, sentimentOutputPath: String): Unit = {
+    import spark.implicits._
 
-  // Funzione per ottenere il sentiment da una frase
-  def extractSentiment(text: String): Double = {
-    val annotation: Annotation = pipeline.process(text)
-    val sentences = annotation.get(classOf[CoreAnnotations.SentencesAnnotation])
-    val sentimentScores = sentences.map { sentence =>
-      val tree = sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])
-      getSentimentScore(RNNCoreAnnotations.getPredictedClass(tree))
+    val spark = SparkSession.builder()
+      .appName("Sentiment Analysis")
+      .master("local[*]")
+      .getOrCreate()
+ 
+    val rawRDD: RDD[String] = spark.sparkContext.textFile(sentimentInputPath)
+    val header = rawRDD.first()
+    val dataRDD = rawRDD.filter(row => row != header)
+
+    val parsedRDD: RDD[(String, String, String, String, String)] = dataRDD.mapPartitions(rows => {
+      rows.map(row => {
+        val cols = row.split(",")
+        (cols(0), cols(1), cols(2), cols(3), cols(4)) // (movieId, rating, quote, creationDate, userId)
+      })
+    })
+ 
+    // Broadcast the PretrainedPipeline model
+    // val pipelineSentiment = PretrainedPipeline("analyze_sentiment", lang = "en")
+    // val broadcastPipeline = spark.sparkContext.broadcast(pipelineSentiment)
+ 
+    def sentimentToScore(sentiment: String): Double = {
+      sentiment match {
+        case "positive" => 4.0 + scala.util.Random.nextDouble()
+        case "neutral"  => 2.0 + scala.util.Random.nextDouble()
+        case "negative" => 0.0 + scala.util.Random.nextDouble()
+        case _           => 2.5
+      }
     }
-    // Restituisce il punteggio medio del sentiment per tutte le frasi
-    if (sentimentScores.isEmpty) 3.0 else sentimentScores.sum / sentimentScores.size
-  }
-
-  def saveDataFrameToGcs(dataFrame: DataFrame, outputPath: String): Unit = {
-    try {
-      // Save the DataFrame as a CSV file to the specified GCS path
-      dataFrame
-        .coalesce(1) // Combine partitions to create a single output file
-        .write
-        .option("header", "true") // Include header in the CSV
-        .mode("overwrite") // Overwrite existing file if it exists
-        .csv(outputPath) // Write to the specified GCS path
-      
-      println(s"DataFrame successfully saved to $outputPath")
-    } catch {
-      case e: Exception => 
-        println(s"Error saving DataFrame to GCS: ${e.getMessage}")
-        e.printStackTrace()
-    }
-  }
-
-  // Funzione per processare il CSV e aggiungere il risultato del sentiment
-  def processCSV(inputFile: String, outputPath: String): DataFrame = {
-    // Aggiungi il tempo di inizio
-    val startTime = System.nanoTime()
-
-    // Carica il CSV in un DataFrame di Spark
-    val df = spark.read.option("header", "true").csv(inputFile)
-
-    // Definisci una UDF (User Defined Function) per calcolare il sentiment
-    val sentimentUDF = F.udf((quote: String) => {
-      if (quote != null && quote.nonEmpty) {
-        val sentiment = extractSentiment(quote)
-        BigDecimal(sentiment).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+ 
+    val sentimentRDD = parsedRDD.mapPartitions(rows => {
+      if (rows.isEmpty) {
+        Iterator.empty // Gestisce partizioni vuote
       } else {
-        3.0
+        val pipelineSentiment = PretrainedPipeline("analyze_sentiment", lang = "en")
+        val broadcastPipeline = spark.sparkContext.broadcast(pipelineSentiment)
+        rows.map { case (movieId, rating, quote, creationDate, userId) =>
+          val sentiment = broadcastPipeline.value
+            .annotate(quote)
+            .getOrElse("sentiment", Seq("neutral")).head
+          val sentimentScore = sentimentToScore(sentiment).formatted("%.2f").toDouble
+          (movieId, rating, sentimentScore, creationDate, userId)
+        }
       }
     })
-
-    // Applica la UDF al DataFrame per creare la nuova colonna 'sentimentResult'
-    val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
-    // Persisti il DataFrame in memoria
-    // val cachedDF = resultDF.cache()
-
-    // Stampa una parte del DataFrame per verificare i risultati
-    //cachedDF.show(20, truncate = false)
-
-    //saveDataFrameToGcs(finalDF, outputPath)
     
-    // Aggiungi il tempo di fine
-    val endTime = System.nanoTime()
-    // Calcola e stampa il tempo di esecuzione
-    val duration = (endTime - startTime) / 1e9d // In secondi
-    println(s"Tempo di esecuzione: $duration secondi")
-
-    resultDF
+    println(s"Total records in sentimentRDD: ${sentimentRDD.count()}")
+ 
+    val headerOutput = "movieId,rating,sentimentResult,creationDate,userId"
+    val resultsWithHeader = spark.sparkContext.parallelize(Seq(headerOutput)) ++ sentimentRDD.map {
+      case (movieId, rating, sentimentScore, creationDate, userId) =>
+        s"$movieId,$rating,$sentimentScore,$creationDate,$userId"
+    }
+ 
+    saveSentimentToGcs(resultsWithHeader, sentimentOutputPath)
+    spark.stop()
   }
+ 
+  def saveSentimentToGcs(resultsWithHeader: RDD[String], outputPath: String): Unit = {
+    resultsWithHeader
+      .coalesce(1)
+      .foreachPartition(partition => {
+        val storage: Storage = StorageOptions.getDefaultInstance.getService
+        val uri = new java.net.URI(outputPath)
+        val bucketName = uri.getHost
+        val objectName = uri.getPath.stripPrefix("/")
+        val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
+        val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
   
+      val writer = new java.io.PrintWriter(gcsWriter)
 
-  def main(args: Array[String]): Unit = {
-    //❌💪
-    //val inputFile = "../../processed/user_reviews_final_sampled.csv" // Nome del file CSV di input
-	  val datasetPath = args(0)
-	  val outputPath = args(1)
+      partition.foreach(writer.println)
+      writer.close()
+    })
 
-    // Chiamata alla funzione per processare il CSV
-    processCSV(datasetPath, outputPath)
+    println(s"Results saved to $outputPath")
   }
+
 }
+
+ 

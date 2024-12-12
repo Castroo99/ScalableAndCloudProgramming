@@ -1,5 +1,5 @@
 lazy val root = (project in file("."))
-    .aggregate(main, sentimentAnalysis, matrixFactorization, collaborativeItem)
+    .aggregate(main, sentimentAnalysis/*, matrixFactorization, collaborativeItem*/)
     .settings(
         name := "ScalableRecommendationSystem",
         mainClass in assembly := Some("main.Main"),
@@ -7,7 +7,7 @@ lazy val root = (project in file("."))
     )
 
 lazy val main = (project in file("main"))
-    .dependsOn(sentimentAnalysis, matrixFactorization, collaborativeItem)
+    .dependsOn(sentimentAnalysis/*, matrixFactorization, collaborativeItem*/)
     .settings(
         name := "Main",
         mainClass in Compile := Some("main.Main"), 
@@ -21,17 +21,17 @@ lazy val sentimentAnalysis = (project in file("sentimentAnalysis"))
         assemblySettings
     )
 
-lazy val matrixFactorization = (project in file("matrixFactorization"))
-    .settings(
-        name := "MatrixFactorizationRDD",
-        assemblySettings
-    )
+// lazy val matrixFactorization = (project in file("matrixFactorization"))
+//     .settings(
+//         name := "MatrixFactorizationRDD",
+//         assemblySettings
+//     )
 
-lazy val collaborativeItem = (project in file("collaborativeItem"))
-    .settings(
-        name := "CollaborativeItem",
-        assemblySettings
-    )
+// lazy val collaborativeItem = (project in file("collaborativeItem"))
+//     .settings(
+//         name := "CollaborativeItem",
+//         assemblySettings
+//     )
 
 lazy val assemblySettings = Seq(
     assemblyShadeRules in assembly := Seq(
