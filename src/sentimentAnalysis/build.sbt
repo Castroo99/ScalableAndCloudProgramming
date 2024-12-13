@@ -13,4 +13,4 @@ libraryDependencies += "org.apache.spark" %% "spark-mllib" % "3.4.0"// MLlib per
 libraryDependencies += "com.johnsnowlabs.nlp" %% "spark-nlp" % "5.4.0"
 libraryDependencies += "com.nrinaudo" %% "kantan.csv" % "0.6.1"
 
-mainClass in Compile := Some("SentimentCSVProcessorSpark")
+mainClass in Compile := Some("SentimentAnalysisModule.old_SentimentCSVProcessorSpark")

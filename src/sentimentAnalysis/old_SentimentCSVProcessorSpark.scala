@@ -25,6 +25,7 @@ object old_SentimentCSVProcessorSpark {
 
   val props = new Properties()
   props.setProperty("annotators", "tokenize, ssplit, parse, sentiment")
+  props.setProperty("parse.maxlen", "10")
   val pipeline: StanfordCoreNLP = new StanfordCoreNLP(props)
 
   // Funzione per ottenere il punteggio del sentiment in una scala da 1 a 5
@@ -55,7 +56,7 @@ object old_SentimentCSVProcessorSpark {
     try {
       // Save the DataFrame as a CSV file to the specified GCS path
       dataFrame
-        .coalesce(1) // Combine partitions to create a single output file
+        //.coalesce(1) // Combine partitions to create a single output file
         .write
         .option("header", "true") // Include header in the CSV
         .mode("overwrite") // Overwrite existing file if it exists
@@ -69,6 +70,20 @@ object old_SentimentCSVProcessorSpark {
     }
   }
 
+  def saveDataFrameToCsv(df: DataFrame, outputPath: String): Unit = {
+    val writer = CSVWriter.open(new File(outputPath))
+    // Write the header
+    writer.writeRow(df.columns)
+    // Write the data
+    var i = 0
+    df.collect().foreach(row => {
+      i = i + 1
+      println("Row" + i)
+      writer.writeRow(row.toSeq.map(_.toString))
+      })
+    writer.close()
+  }
+
   // Funzione per processare il CSV e aggiungere il risultato del sentiment
   def processCSV(inputFile: String, outputPath: String): DataFrame = {
     // Aggiungi il tempo di inizio
@@ -76,6 +91,7 @@ object old_SentimentCSVProcessorSpark {
 
     // Carica il CSV in un DataFrame di Spark
     val df = spark.read.option("header", "true").csv(inputFile)
+    val Array(df1, df2, df3, df4, df5, df6, df7, df8, df9, df10) = df.randomSplit(Array(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1))
 
     // Definisci una UDF (User Defined Function) per calcolare il sentiment
     val sentimentUDF = F.udf((quote: String) => {
@@ -88,7 +104,10 @@ object old_SentimentCSVProcessorSpark {
     })
 
     // Applica la UDF al DataFrame per creare la nuova colonna 'sentimentResult'
-    val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
+    val resultDF = df1.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
+    println("Sentiment analysis completed.")
+    //resultDF.show(1000, truncate = false)
+    saveDataFrameToGcs(resultDF, outputPath)
     // Persisti il DataFrame in memoria
     // val cachedDF = resultDF.cache()
 
@@ -110,8 +129,8 @@ object old_SentimentCSVProcessorSpark {
   def main(args: Array[String]): Unit = {
     //❌💪
     //val inputFile = "../../processed/user_reviews_final_sampled.csv" // Nome del file CSV di input
-	  val datasetPath = args(0)
-	  val outputPath = args(1)
+	  val datasetPath = "../processed/file_senza_null_o_incompleti_real.csv"
+	  val outputPath = "../processed/user_reviews_with_sentiment.csv"
 
     // Chiamata alla funzione per processare il CSV
     processCSV(datasetPath, outputPath)
