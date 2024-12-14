@@ -1,4 +1,4 @@
-package MatrixFactorizationModule
+package MatrixFactorizationALSPackage
 
 import org.apache.spark.sql.{SparkSession, DataFrame}
 import org.apache.spark.{SparkConf, SparkContext} 
@@ -8,9 +8,10 @@ import com.github.tototoshi.csv._
 import com.google.cloud.storage.{BlobInfo, Storage, StorageOptions}
 import java.nio.channels.Channels
 import java.io.ByteArrayOutputStream
-import kantan.csv._
-import kantan.csv.ops._
+// import kantan.csv._
+// import kantan.csv.ops._
 import scala.math.BigDecimal.RoundingMode
+import org.apache.spark.mllib.evaluation.RegressionMetrics
 
 
 object MatrixFactorizationRDD_ALS {
@@ -21,73 +22,97 @@ object MatrixFactorizationRDD_ALS {
     //   System.exit(1)
     // }
 
-    // val userId_selected = args(0).toInt
-    // val numMoviesRec = args(1).toInt
+    // val targetUser = args(0).toInt
+    // val topN = args(1).toInt
     // val sentimentDF = args(2)
     // val outputFile = args(3)
-    // matrixFactorizationRDDAls(userId_selected, numMoviesRec, sentimentDF, outputFile)
-  }
+    // matrixFactorizationRDDAls(targetUser, topN, sentimentFile, outputFile)
+  // }
 
-  def matrixFactorizationRDDAls(userId_selected: Int, numMoviesRec: Int, sentimentDF: DataFrame, outputFile: String): Unit = {
-    print("Starting MatrixFactorizationRDD_ALS")
-    // Crea la sessione Spark
+  // def matrixFactorizationRDDAls(targetUser: Int, topN: Int, sentimentFile: String, outputFile: String): Unit = {
+  //   print("Starting MatrixFactorizationRDD_ALS")
+    
+    val bucketName = "recommendation-system-lfag"
+    val basePath = s"gs://$bucketName"
+    val targetUser = 447145//args(0).toInt
+    val topN = 20 //args(1).toInt
+    val sentimentFile = f"${basePath}/processed-dataset/user_reviews_with_sentiment.csv"//args(2)
+    val outputFile = f"${basePath}/processed-dataset/matrix_factorization_RDD.csv"//args(3)
+    // val sentimentFile = "../processed/new_df_sentiment.csv"//args(2)
+    // val outputFile = "../processed/matrixFactRddALS_output.csv"//args(3)
+
     val spark: SparkSession = SparkSession.builder()
       .appName("ReccSys")
       .master("local[4]") // 4 thread
       .getOrCreate()
-    
-    import spark.implicits._
 
-    // val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
+    val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
     
-    // // header rimosso da RDD
-    // val header = rawRdd.first()
-    // val dataRdd: RDD[String] = rawRdd.filter(line => line != header)
+    // header rimosso da RDD
+    val header = rawRdd.first()
+    val dataRdd: RDD[String] = rawRdd.filter(line => line != header)
     
     // mappa ogni riga del csv in un oggetto Rating con userId, movieId e totalScore
-    val ratingsRdd: RDD[Rating] = sentimentDF.rdd.map { 
-      row =>
-      val userId = row.getAs[String]("userId").toInt
-      val movieId = row.getAs[String]("movieId").toInt
-      val rating = row.getAs[String]("rating").toDouble
-      val sentimentResult = row.getAs[Double]("sentimentResult")
-      //line =>
-      // val fields = line.split(",")
-      // val userId = fields(3).toInt
-      // val movieId = fields(0).toInt
-      // val rating = fields(1).toDouble
-      // val sentimentResult = fields(4).toDouble
-      val totalScore = (rating * 0.5) + (sentimentResult * 0.5)
+    val ratingsRdd: RDD[Rating] = dataRdd.map { 
+      line =>
+      val fields = line.split(",")
+      val userId = fields(2).toInt
+      val movieId = fields(0).toInt
+      val rating = fields(1).toDouble
+      val sentimentResult = fields(3).toDouble
+      val totalScore = {
+        val normalizedRating = math.min(math.max(rating, 0), 5)
+        val normalizedSentiment = math.min(math.max(sentimentResult, 0), 5)
+        (normalizedRating * 0.5) + (normalizedSentiment * 0.5)
+      }
       Rating(userId, movieId, totalScore)
-    }//.repartition(numPartitions)
-
+    }
+    
     val Array(trainingRdd, testRdd) = ratingsRdd.randomSplit(Array(0.8, 0.2))
 
     val rank = 10
     val numIterations = 10
     val lambda = 0.1
 
-    val model = ALS.train(trainingRdd, rank, numIterations, lambda)
+    val model = ALS.train(trainingRdd, rank, numIterations, lambda)    
+    val predictions: RDD[Rating] = model.predict(testRdd.map(r => (r.user, r.product)))
 
-    // generarazione di 5 film raccomandati per ogni utente
-    val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(numMoviesRec)
-    // recs filtrate per utente selezionato
+    val predictionsMap = predictions
+      .map(r => ((r.user, r.product), r.rating))
+      .collectAsMap()
+
+    val predictionsAndLabels = testRdd.map { case Rating(userId, movieId, rating) =>
+      val predictedRating = predictionsMap.getOrElse((userId, movieId), 0.0)
+      (predictedRating, rating)
+    }
+
+    val metrics = new RegressionMetrics(predictionsAndLabels)
+    val rmse = metrics.rootMeanSquaredError
+    val mae = metrics.meanAbsoluteError
+    println(s"RMSE: $rmse")
+    println(s"MAE: $mae")
+
+    // generarazione di topN film raccomandati per ogni utente
+    val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(topN)
+
     val filteredRecs: RDD[(Int, Array[Rating])] = userRecs.filter {
-      case (userId, _) => userId == userId_selected
+      case (userId, _) => userId == targetUser
     }.map {case (userId, recs) => (userId, recs.map { r =>
           val roundedRating = BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
           Rating(r.user, r.product, roundedRating)
       })
     }
 
-    saveRecommendationsToCsv(filteredRecs, outputFile)
+    saveRecommendationsToGcs(filteredRecs, outputFile)
     print("End MatrixFactorizationRDD_ALS")
   }
 
   def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     print("Starting saveRecommendationsToCsv")
     val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
-      case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
+      // case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
+      case (userId, recs) => recs.map(r => (userId, r.product, 
+        BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble))
     }
 
     val writer = CSVWriter.open(new java.io.File(outputPath))
@@ -103,7 +128,9 @@ object MatrixFactorizationRDD_ALS {
   def saveRecommendationsToGcs(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     print("Starting MatrixFactorizationRDD_ALS.saveRecommendationsToGcs")
     val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
-      case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
+      // case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
+      case (userId, recs) => recs.map(r => (userId, r.product, 
+        BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble))
     }
 
     // Convert recommendations to CSV format in memory
