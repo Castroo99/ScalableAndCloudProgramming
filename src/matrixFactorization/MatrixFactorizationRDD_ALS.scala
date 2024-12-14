@@ -40,13 +40,12 @@ object MatrixFactorizationRDD_ALS {
     val outputFile = f"${basePath}/processed-dataset/matrix_factorization_RDD.csv"//args(3)
     // val sentimentFile = "../processed/new_df_sentiment.csv"//args(2)
     // val outputFile = "../processed/matrixFactRddALS_output.csv"//args(3)
-    
-    val startTime = System.nanoTime()
-
+  }
+  
   def matrixFactorizationRDDAls(spark: SparkSession, userId_selected: Int, numMoviesRec: Int, sentimentFile: String, outputFile: String): Unit = {
     print("Starting MatrixFactorizationRDD_ALS")
     import spark.implicits._
-
+    val startTime = System.nanoTime()
     val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
     
     // header rimosso da RDD
@@ -117,7 +116,6 @@ object MatrixFactorizationRDD_ALS {
     val duration = (endTime - startTime) / 1e9d // In secondi
     println(s"Tempo di esecuzione: $duration secondi")
   }
-
   def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     print("Starting saveRecommendationsToCsv")
     val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
