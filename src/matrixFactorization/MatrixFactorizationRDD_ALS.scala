@@ -41,8 +41,8 @@ object MatrixFactorizationRDD_ALS {
     // val sentimentFile = "../processed/new_df_sentiment.csv"//args(2)
     // val outputFile = "../processed/matrixFactRddALS_output.csv"//args(3)
   }
-  
-  def matrixFactorizationRDDAls(spark: SparkSession, userId_selected: Int, numMoviesRec: Int, sentimentFile: String, outputFile: String): Unit = {
+
+  def matrixFactorizationRDDAls(spark: SparkSession, targetUser: Int, topN: Int, sentimentFile: String, outputFile: String): Unit = {
     print("Starting MatrixFactorizationRDD_ALS")
     import spark.implicits._
     val startTime = System.nanoTime()

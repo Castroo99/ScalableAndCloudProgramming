@@ -3,7 +3,7 @@ package main
 import org.apache.spark.sql.SparkSession
 //import SentimentAnalysisModule.SentimentCSVProcessorSpark
 import CollaborativeItemModule.CollaborativeFilteringDF
-import MatrixFactorizationModule.{MatrixFactorizationRDD_ALS, MatrixFactorizationRDD}
+import MatrixFactorizationALSPackage.MatrixFactorizationRDD_ALS
 import org.apache.spark.sql.{DataFrame}
 
 
