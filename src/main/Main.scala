@@ -7,7 +7,9 @@ import org.apache.spark.sql.{DataFrame}
 
 
 object Main extends App {
+  import spark.implicits._
   //❌💪
+  
   val userId_selected = 849296
   val numMoviesRec = 5 
   var bucketName = "recommendation-system-lfag"
@@ -17,6 +19,11 @@ object Main extends App {
   val matrixOutputPath = s"$basePath/processed-dataset/user_reviews_factorized_RDD_ALS.csv"
   val collabOutputPath = s"$basePath/processed-dataset/normalized_predicted_recommendations.csv"
 
+  val spark = SparkSession.builder()
+    .appName("Sentiment Analysis")
+    .master("local[*]")
+    .getOrCreate()
+    
   // val sentimentInputPath = "processed/user_reviews_final_sampled.csv"
   // val sentimentOutputPath = "processed/user_reviews_with_sentiment.csv"
 
@@ -37,7 +44,7 @@ object Main extends App {
   //   userId_selected, 
   //   numMoviesRec,
   //   sentimentDF,
-  //   matrixOutputPath
+  //   matrixOutputPaths
   // )
   
   //Collaborative Filtering Recc. with MatrixFact. output

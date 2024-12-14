@@ -15,7 +15,7 @@ object SentimentCSVProcessorSpark {
   }
  
   def processCSV(sentimentInputPath: String, sentimentOutputPath: String): Unit = {
-    import spark.implicits._
+    //import spark.implicits._
 
     val spark = SparkSession.builder()
       .appName("Sentiment Analysis")
