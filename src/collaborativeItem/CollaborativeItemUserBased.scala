@@ -1,4 +1,5 @@
-package CollaborativeFilterPackage
+package CollaborativeItemModule
+
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
@@ -24,7 +25,7 @@ object CollaborativeFilteringDF {
       trainName = args(0)
       outputFile = args(1)
     }
- */
+    */
     // Percorso del dataset
     val trainPath = trainName
 
@@ -46,7 +47,10 @@ object CollaborativeFilteringDF {
 
     val sc = spark.sparkContext
     sc.setLogLevel("ERROR")
+  }
 
+  def execCollaborativeItem (spark: SparkSession, targetUser: Int, topN: Int, trainPath: String, outputFile: String): Unit = {
+    import spark.implicits._
     // Leggi il dataset dei voti dei film
     val ratings = spark.read
       .option("header", true)
@@ -87,11 +91,11 @@ object CollaborativeFilteringDF {
       .filter(!$"others.movieId".isin(targetRatings.select("movieId").collect().map(_.getString(0)): _*))
       .groupBy($"others.movieId")
       .agg(
-        avg($"others.rating" * $"cosine_similarity").alias("predicted_rating")
+        avg($"others.rating" * $"cosine_similarity").alias("totalScore")
       )
-      .orderBy($"predicted_rating".desc)
+      .orderBy($"totalScore".desc)
       .limit(topN)
-      .select(lit(targetUser).alias("userId"), $"others.movieId", $"predicted_rating")
+      .select(lit(targetUser).alias("userId"), $"others.movieId", $"totalScore")
 
     println(s"Saving top $topN recommendations for user $targetUser...")
 

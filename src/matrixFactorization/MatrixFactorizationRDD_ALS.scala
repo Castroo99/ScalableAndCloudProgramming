@@ -43,10 +43,9 @@ object MatrixFactorizationRDD_ALS {
     
     val startTime = System.nanoTime()
 
-    val spark: SparkSession = SparkSession.builder()
-      .appName("ReccSys")
-      .master("local[4]") // 4 thread
-      .getOrCreate()
+  def matrixFactorizationRDDAls(spark: SparkSession, userId_selected: Int, numMoviesRec: Int, sentimentFile: String, outputFile: String): Unit = {
+    print("Starting MatrixFactorizationRDD_ALS")
+    import spark.implicits._
 
     val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
     

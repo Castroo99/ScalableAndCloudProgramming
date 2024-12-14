@@ -23,9 +23,9 @@ Compile / mainClass := Some("CollaborativeFilterPackage.CollaborativeFilteringDF
 
 // Dipendenze del progetto
 libraryDependencies ++= Seq(
-  "org.apache.spark" %% "spark-core" % "3.4.0",
-  "org.apache.spark" %% "spark-sql" % "3.4.0",
-  "org.apache.spark" %% "spark-mllib" % "3.4.0"
+  "org.apache.spark" %% "spark-core" % "3.5.0",
+  "org.apache.spark" %% "spark-sql" % "3.5.0",
+  "org.apache.spark" %% "spark-mllib" % "3.5.0"
 )
 
 // Altre configurazioni opzionali

@@ -20,22 +20,12 @@ object MatrixFactorizationRDD {
     //   println("Usage: MatrixFactorizationRDD <bucketName> <sentimentFile> <outputFile>")
     //   System.exit(1)
     // }
-//     matrixFactorizationRdds(targetUser, topN, sentimentFile, outputFile)
-//     }
+    //matrixFactorizationRdd(userId_selected, numMoviesRec, sentimentDF, outputFile)
+    }
 
-//    def matrixFactorizationRdd(targetUser: Int, topN: Int, sentimentFile: DataFrame, outputFile: String): Unit = {
-//     print("Starting MatrixFactorizationRDD")
-    val bucketName = "recommendation-system-lfag"
-    val basePath = s"gs://$bucketName"
-    val targetUser = 447145//args(0).toInt 
-    val topN = 20 //args(1).toInt
-    val sentimentFile = f"${basePath}/processed-dataset/user_reviews_with_sentiment.csv"//args(2)
-    val outputFile = f"${basePath}/processed-dataset/matrix_factorization_RDD.csv"//args(3)
-    // val sentimentFile = "../processed/new_df_sentiment.csv"//args(2)
-    // val outputFile = "../processed/matrixFactRddALS_output.csv"//args(3)
-
+   def matrixFactorizationRdd(userId_selected: Int, numMoviesRec: Int, sentimentDF: DataFrame, outputFile: String): Unit = {
+    print("Starting MatrixFactorizationRDD")
     val startTime = System.nanoTime()
-
     val spark: SparkSession = SparkSession.builder()
     .appName("MatrixFactorizationRDD")
     .master("local[*]")
