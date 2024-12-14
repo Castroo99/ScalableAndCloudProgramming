@@ -105,11 +105,12 @@ object CollaborativeFilteringDF {
       .coalesce(1)  // Unifica i file in uno solo
       .write
       .option("header", "true")
+      .mode("overwrite") // Overwrite existing file if it exists
       .csv(outputFile)
 
     println(s"Recommendations saved successfully for user $targetUser.")
 
     // Chiudi la sessione Spark
-    spark.close()
+    //spark.close()
   }
 }

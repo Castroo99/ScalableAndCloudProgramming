@@ -1,17 +1,15 @@
 package main
-
+import org.apache.spark.sql.functions._
 import org.apache.spark.sql.SparkSession
 //import SentimentAnalysisModule.SentimentCSVProcessorSpark
 import CollaborativeItemModule.CollaborativeFilteringDF
 import MatrixFactorizationALSPackage.MatrixFactorizationRDD_ALS
 import org.apache.spark.sql.{DataFrame}
-
-
 object Main extends App {
   //❌💪
   
   val userId_selected = 447145
-  val numMoviesRec = 5 
+  val numMoviesRec = 50 
   var bucketName = "recommendation-system-lfag"
   val basePath = s"gs://$bucketName"
   val sentimentInputPath = s"$basePath/processed-dataset/user_reviews_quote_trunc.csv"
@@ -24,7 +22,7 @@ object Main extends App {
     .appName("recomandation")
     .master("local[*]")
     .getOrCreate()
-    
+  
     /*   
     SentimentCSVProcessorSpark.processCSV(
       sentimentInputPath,
@@ -49,33 +47,34 @@ object Main extends App {
     sentimentOutputPath,
     collabOutputPath
   )
+
+  // Leggi i file CSV dei risultati
   val ratings1 = spark.read
-      .option("header", true)
-      .csv(matrixOutputPath)
+    .option("header", true)
+    .csv(matrixOutputPath)
   val ratings2 = spark.read
-      .option("header", true)
-      .csv(collabOutputPath)
+    .option("header", true)
+    .csv(collabOutputPath)
 
-  // Assicurati che le colonne siano nel formato corretto, convertendo "totalScore" in un tipo numerico
-  val ratings1WithScore = ratings1.withColumn("totalScore", ratings1("totalScore"))
-  val ratings2WithScore = ratings2.withColumn("totalScore", ratings2("totalScore"))
-
+  // Rinomina le colonne totalScore per evitare ambiguità
+  val ratings1WithScore = ratings1.withColumnRenamed("totalScore", "totalScore1")
+  val ratings2WithScore = ratings2.withColumnRenamed("totalScore", "totalScore2")
+  
   // Unisci i due DataFrame su userId e movieId
   val joinedRatings = ratings1WithScore
-      .join(ratings2WithScore, Seq("userId", "movieId"), "outer") // Unione di tipo outer per includere tutte le righe
+    .join(ratings2WithScore, Seq("userId", "movieId"), "outer") // Unione di tipo outer per includere tutte le righe
 
-  // Somma i totalScore da entrambe le tabelle (puoi usare `coalesce` per evitare valori nulli)
+  // Calcola il punteggio totale sommando i valori
   val finalRatings = joinedRatings.withColumn(
-      "totalScore",
-      ratings1WithScore("totalScore") + ratings2WithScore("totalScore")
-      )
-  
+    "totalScore",
+    coalesce(col("totalScore1"), lit(0)) + coalesce(col("totalScore2"), lit(0))
+  )
 
   // Scrivi il risultato in un nuovo file CSV
   finalRatings
-      .select("userId", "movieId", "totalScore")
-      .write
-      .option("header", "true")
-      .csv(finalRecOutputPath)
-  
+    .select("userId", "movieId", "totalScore")
+    .write
+    .option("header", "true")
+    .mode("overwrite") // Overwrite existing file if it exists
+    .csv(finalRecOutputPath) 
 }
