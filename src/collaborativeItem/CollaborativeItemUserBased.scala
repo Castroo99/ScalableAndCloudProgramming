@@ -9,9 +9,9 @@ object CollaborativeFilteringDF {
   def main(args: Array[String]): Unit = {
     val bucketName = "recommendation-system-lfag"
     val basePath = s"gs://$bucketName"
-    var targetUser = 8722961//args(0).toInt
-    var topN = 10 //args(1).toInt
-    var csvInputPath = f"${basePath}/processed-dataset/processed-dataset_df1_sentiment.csv_part-00000-a5138311-ec5d-476c-9c85-242d2126302e-c000.csv"//args(2)
+    var targetUser = 447145//args(0).toInt
+    var topN = 3000 //args(1).toInt
+    var csvInputPath = f"${basePath}/processed-dataset/df_sentiment.csv"//args(2)
     var csvOutputPath = f"${basePath}/processed-dataset/collaborative_output.csv"//args(3)
 
     Logger.getLogger("org").setLevel(Level.ERROR)
