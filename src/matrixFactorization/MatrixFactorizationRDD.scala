@@ -1,4 +1,4 @@
-package  MatrixFactorizationModule
+package  MatrixFactorizationALSPackage
 
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
@@ -11,6 +11,7 @@ import scala.math.BigDecimal.RoundingMode
 import com.google.cloud.storage.{BlobInfo, Storage, StorageOptions}
 import java.nio.channels.Channels
 import java.io.ByteArrayOutputStream
+import org.apache.spark.storage.StorageLevel
 
 object MatrixFactorizationRDD {
   def main(args: Array[String]): Unit = {
@@ -19,97 +20,84 @@ object MatrixFactorizationRDD {
     //   println("Usage: MatrixFactorizationRDD <bucketName> <sentimentFile> <outputFile>")
     //   System.exit(1)
     // }
-    matrixFactorizationRdds(userId_selected, numMoviesRec, sentimentDF, outputFile)
-    }
+//     matrixFactorizationRdds(targetUser, topN, sentimentFile, outputFile)
+//     }
 
-   def matrixFactorizationRdd(userId_selected: Int, numMoviesRec: Int, sentimentDF: DataFrame, outputFile: String): Unit = {
-    print("Starting MatrixFactorizationRDD")
+//    def matrixFactorizationRdd(targetUser: Int, topN: Int, sentimentFile: DataFrame, outputFile: String): Unit = {
+//     print("Starting MatrixFactorizationRDD")
+    val bucketName = "recommendation-system-lfag"
+    val basePath = s"gs://$bucketName"
+    val targetUser = 447145//args(0).toInt 
+    val topN = 20 //args(1).toInt
+    val sentimentFile = f"${basePath}/processed-dataset/user_reviews_with_sentiment.csv"//args(2)
+    val outputFile = f"${basePath}/processed-dataset/matrix_factorization_RDD.csv"//args(3)
+    // val sentimentFile = "../processed/new_df_sentiment.csv"//args(2)
+    // val outputFile = "../processed/matrixFactRddALS_output.csv"//args(3)
+
+    val startTime = System.nanoTime()
 
     val spark: SparkSession = SparkSession.builder()
     .appName("MatrixFactorizationRDD")
-    .master("local[4]")
+    .master("local[*]")
+    .config("spark.executor.memory", "8g") // Imposta la memoria per ciascun executor
+    .config("spark.driver.memory", "8g") // Imposta la memoria per il driver 
+    .config("spark.executor.memoryOverhead", "2g")
+    .config("spark.driver.maxResultSize", "4g")  // Limita la dimensione dei risultati restituiti
+    .config("spark.storage.memoryFraction", "0.4")
     .getOrCreate()
 
-    // val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
+    val rawRdd: RDD[String] = spark.sparkContext.textFile(sentimentFile)
 
-    // // header rimosso da RDD
-    // val header = rawRdd.first()
-    // val dataRdd: RDD[String] = rawRdd.filter(line => line != header)
+    // header rimosso da RDD
+    val header = rawRdd.first()
+    val dataRdd: RDD[String] = rawRdd.filter(line => line != header)
     
-    // // mapping userId-index per salvataggio userId originali
-    // val userIdToIndex = inputDf.rdd.map { line =>
-    //   val fields = line.split(",")
-    //   fields(3).toInt
-    // }.distinct().zipWithIndex().collect().toMap
-    // val indexToUserId = userIdToIndex.map(_.swap)
-    
-    // // mapping movieId-index per salvataggio movieId originali
-    // val movieIdToIndex = dataRdd.map { line =>
-    //   val fields = line.split(",")
-    //   fields(0).toInt
-    // }.distinct().zipWithIndex().collect().toMap
-    // val indexToMovieId = movieIdToIndex.map(_.swap)
-
-    // mapping userId-index per salvataggio userId originali
-    val userIdToIndex = sentimentDF
-    .select("userId")
-    .distinct()
-    .rdd
-    .map(row => row.getInt(0)) 
-    .zipWithIndex()
-    .collect()
-    .toMap
-    
-    val indexToUserId = userIdToIndex.map(_.swap)
-
-    // mapping movieId-index per salvataggio movieId originali
-    val movieIdToIndex = sentimentDF
-      .select("movieId")
-      .distinct()
-      .rdd
-      .map(row => row.getInt(0))
-      .zipWithIndex()
-      .collect()
-      .toMap
-
-    val indexToMovieId = movieIdToIndex.map(_.swap)
-
-    // mappa ogni riga del csv in un oggetto Rating con userId, movieId e totalScore
-    val ratingsRdd: RDD[Rating] = sentimentDF.rdd.map { row =>
-      val userId = userIdToIndex(row.getInt(row.fieldIndex("userId"))).toInt
-      val movieId = movieIdToIndex(row.getInt(row.fieldIndex("movieId"))).toInt
-      val rating = row.getDouble(row.fieldIndex("rating"))
-      val sentimentResult = row.getDouble(row.fieldIndex("sentimentResult"))
-    // line =>
-    //   val fields = line.split(",")
-    //   val userId = userIdToIndex(fields(3).toInt).toInt
-    //   val movieId = movieIdToIndex(fields(0).toInt).toInt
-    //   val rating = fields(1).toDouble
-    //   val sentimentResult = fields(4).toDouble
-      val totalScore = (rating * 0.5) + (sentimentResult * 0.5)
+    val ratingsRdd: RDD[Rating] = dataRdd.map {line =>
+        val fields = line.split(",")
+        val userId = fields(2).toInt
+        val movieId = fields(0).toInt
+        val rating = fields(1).toDouble
+        val sentimentResult = fields(3).toDouble
+        val totalScore = {
+            val normalizedRating = math.min(math.max(rating, 0), 5)
+            val normalizedSentiment = math.min(math.max(sentimentResult, 0), 5)
+            (normalizedRating * 0.5) + (normalizedSentiment * 0.5)
+        }
       Rating(userId, movieId, totalScore)
-    }
+    }.repartition(200)
+
+    ratingsRdd.persist(StorageLevel.MEMORY_AND_DISK)
 
     // configurazione dei parametri della matrice
-    val numUsers = userIdToIndex.size
-    val numMovies = movieIdToIndex.size
+    val numUsers = ratingsRdd.map(_.user).distinct().count()
+    val numMovies = ratingsRdd.map(_.product).distinct().count()
     val rank = 10             // num feature latenti
     val numIterations = 10    // iterazioni di discesa del gradiente
     val lambda = 0.1          // regolarizzazione
     val alpha = 0.01          // tasso apprendimento
 
     // creazione matrici Users e Movies, inizializzate casualmente
-    val U = initializeMatrix(numUsers, rank)
-    val M = initializeMatrix(numMovies, rank)
+    val U = initializeMatrix(numUsers.toInt, rank)
+    val M = initializeMatrix(numMovies.toInt, rank)
 
-    // matrici convertite da array bidim in map
+    // matrici convertite da array bidimensionali in map
     val U_map = U.zipWithIndex.map { case (row, idx) => (idx, row) }.toMap
     val M_map = M.zipWithIndex.map { case (row, idx) => (idx, row) }.toMap
-    
+    val U_map_bc = spark.sparkContext.broadcast(U_map)
+    val M_map_bc = spark.sparkContext.broadcast(M_map)
+
     // matrici distribuite tra i nodi del cluster
     // ogni riga mappata con un indice, creando un RDD
-    var U_rdd = spark.sparkContext.parallelize(U.zipWithIndex.map { case (row, idx) => (idx, row) })
-    var M_rdd = spark.sparkContext.parallelize(M.zipWithIndex.map { case (row, idx) => (idx, row) })
+    var U_rdd = spark.sparkContext.parallelize(ratingsRdd.map(_.user).distinct().collect().map { userId =>
+    (userId, Array.fill(rank)(scala.util.Random.nextDouble())) // inizializzata casualmente
+    })
+
+    var M_rdd = spark.sparkContext.parallelize(ratingsRdd.map(_.product).distinct().collect().map { movieId =>
+    (movieId, Array.fill(rank)(scala.util.Random.nextDouble())) 
+    })
+
+    U_rdd = U_rdd.persist(StorageLevel.MEMORY_AND_DISK)
+    M_rdd = M_rdd.persist(StorageLevel.MEMORY_AND_DISK)
 
     // modello addestrato con discesa del gradiente
     for (iteration <- 1 to numIterations) {
@@ -117,10 +105,10 @@ object MatrixFactorizationRDD {
 
       // ogni oggetto Rating mappato con la previsione sul rating e l'errore
       val gradients = ratingsRdd.map { case Rating(userId, movieId, rating) =>
-        // estrazione vettori delle matrici
-        val u = U_map.getOrElse(userId, Array.fill(rank)(0.0))
-        val m = M_map.getOrElse(movieId, Array.fill(rank)(0.0))
-    
+        // estrazione vettori delle matrici U e M
+        val u = U_map_bc.value.getOrElse(userId, Array.fill(rank)(0.0))
+        val m = M_map_bc.value.getOrElse(movieId, Array.fill(rank)(0.0))
+
         // prodotto fra ogni userId e movieId  
         val prediction = u.zip(m).map { case (uFactor, mFactor) => uFactor * mFactor }.sum
         val error = rating - prediction
@@ -137,20 +125,13 @@ object MatrixFactorizationRDD {
       val updated_U = gradients.map { case ((userId, uGrad), _) => (userId, uGrad) }
       val updated_M = gradients.map { case ((_, _), (movieId, mGrad)) => (movieId, mGrad) }
 
-      U_rdd = U_rdd.fullOuterJoin(updated_U).mapValues {
-          case (Some(u), Some(uGrad)) => u.zip(uGrad).map { case (uVal, uGradVal) => uVal - alpha * uGradVal }
-          case (Some(u), None) => u                         // se non ci sono aggiornamenti, lascia il vecchio valore
-          case (None, Some(uGrad)) => Array.fill(rank)(0.0) // se l'utente non esiste prende il valore iniziale
-          case _ => Array.fill(rank)(0.0)
-      }
-      
-      M_rdd = M_rdd.fullOuterJoin(updated_M).mapValues {
-      case (Some(m), Some(mGrad)) => m.zip(mGrad).map { case (mVal, mGradVal) => mVal - alpha * mGradVal }
-      case (Some(m), None) => m                         // se non ci sono aggiornamenti, lascia il vecchio valore
-      case (None, Some(mGrad)) => Array.fill(rank)(0.0) // se il film non esiste prende il valore iniziale
-      case _ => Array.fill(rank)(0.0)
-      }
-        
+        U_rdd = U_rdd.join(updated_U).mapValues {
+            case (u, uGrad) => u.zip(uGrad).map { case (uVal, uGradVal) => uVal - alpha * uGradVal }
+        }
+
+        M_rdd = M_rdd.join(updated_M).mapValues {
+            case (m, mGrad) => m.zip(mGrad).map { case (mVal, mGradVal) => mVal - alpha * mGradVal }
+        }
 
     //   // calcolo dell'errore da minimizzare
     //   val loss = gradients.map { case ((userId, uGrad), (movieId, mGrad)) =>
@@ -168,8 +149,9 @@ object MatrixFactorizationRDD {
     // prodotto tra le matrici per il calcolo di ogni rating, anche per i film non visti da ogni utente
     val userRecommendations = U_rdd.cartesian(M_rdd).map { case ((userId, u), (movieId, m)) =>
       val ratingPrediction = u.zip(m).map { case (uVal, mVal) => uVal * mVal }.sum
-      (userId, movieId, ratingPrediction) //RDD con ratingPrediction come score predetto
-    }
+      val limitedRating = math.min(math.max(ratingPrediction, 0), 5)
+      (userId, movieId, limitedRating) 
+    } 
 
     // estrazione dei primi 5 film raccomandati per ogni utente
     val top5Recs = userRecommendations
@@ -179,27 +161,29 @@ object MatrixFactorizationRDD {
           .mapValues(_.head) // rimossi duplicati per movieId
           .values.toList   
           .sortBy(-_._3)   // score decrescente
-          .take(numMoviesRec))        // primi 5 film
+          .take(topN))        // primi 5 film
 
 
-    val recommendations = top5Recs.flatMap { case (userIndex, recs) =>
-      val originalUserId = indexToUserId(userIndex) // mapping da indice a userId originale
-      recs.filter { case (_, _, rating) => rating > 0.0 } // estratte solo recs con rating > 0
-          .map { case (_, movieIndex, rating) =>
-            val originalMovieId = indexToMovieId(movieIndex) // mapping da indice a movieId originale
-            val formattedRating = BigDecimal(rating).setScale(2, RoundingMode.HALF_UP).toDouble
-            (originalUserId, originalMovieId, formattedRating)
-          }
+    val recommendations = top5Recs.flatMap { case (userId, recs) =>
+        recs.filter { case (_, _, rating) => rating > 0.0 }  // estratti solo rating > 0
+            .flatMap { case (_, movieId, rating) =>
+                val formattedRating = BigDecimal(rating).setScale(2, RoundingMode.HALF_UP).toDouble
+                Some((userId, movieId, formattedRating))
+            }
     }
+    // val recommendationsRdd = spark.sparkContext.parallelize(recommendations.collect()) 
 
-    val recommendationsRdd = spark.sparkContext.parallelize(recommendations.collect()) 
+    val filteredRecs: RDD[(Int, Int, Double)] = recommendations
+      .filter { case (userId, _, _) => userId == targetUser }
 
-    val filteredRecs: RDD[(Int, Int, Double)] = recommendationsRdd
-      .filter { case (userId, _, _) => userId == userId_selected }
+    saveRecommendationsToGcs(filteredRecs, outputFile)
 
-    saveRecommendationsToCsv(filteredRecs, outputFile)
+    val endTime = System.nanoTime()
+    // Calcola e stampa il tempo di esecuzione
+    val duration = (endTime - startTime) / 1e9d // In secondi
+    println(s"Tempo di esecuzione: $duration secondi")
 
-    spark.stop()
+    // spark.stop()
   }
 
   
@@ -217,38 +201,37 @@ object MatrixFactorizationRDD {
         Seq(userId.toString, movieId.toString, totalScore.toString)
     })
   }
-
   
-  // def saveRecommendationsToGcs(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
-  //   print("Starting MatrixFactorizationRDD.saveRecommendationsToGcs")
+  def saveRecommendationsToGcs(recommendations: RDD[(Int, Int, Double)], outputPath: String): Unit = {
+    print("Starting MatrixFactorizationRDD.saveRecommendationsToGcs")
 
-  //   // Convert recommendations to CSV format in memory
-  //   val csvData = new ByteArrayOutputStream()
-  //   val writer = CSVWriter.open(csvData)
+    // Convert recommendations to CSV format in memory
+    val csvData = new ByteArrayOutputStream()
+    val writer = CSVWriter.open(csvData)
 
-  //   // Scrive header
-  //   writer.writeRow(Seq("userId", "movieId", "totalScore"))
+    // Scrive header
+    writer.writeRow(Seq("userId", "movieId", "totalScore"))
 
-  //   // Scrive i dati
-  //   writer.writeAll(
-  //     recommendations.collect().map {
-  //       case (userId, movieId, totalScore) => Seq(userId.toString, movieId.toString, totalScore.toString)
-  //     }
-  //   )
+    // Scrive i dati
+    writer.writeAll(
+      recommendations.collect().map {
+        case (userId, movieId, totalScore) => Seq(userId.toString, movieId.toString, totalScore.toString)
+      }
+    )
 
-  //   writer.close()
+    writer.close()
 
-  //   // Configurazione e salvataggio su GCS
-  //   val storage: Storage = StorageOptions.getDefaultInstance.getService
-  //   val uri = new java.net.URI(outputPath)
-  //   val bucketName = uri.getHost
-  //   val objectName = uri.getPath.stripPrefix("/")
+    // Configurazione e salvataggio su GCS
+    val storage: Storage = StorageOptions.getDefaultInstance.getService
+    val uri = new java.net.URI(outputPath)
+    val bucketName = uri.getHost
+    val objectName = uri.getPath.stripPrefix("/")
 
-  //   val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
-  //   val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
-  //   gcsWriter.write(csvData.toByteArray)
-  //   gcsWriter.close()
+    val blobInfo = BlobInfo.newBuilder(bucketName, objectName).build()
+    val gcsWriter = Channels.newOutputStream(storage.writer(blobInfo))
+    gcsWriter.write(csvData.toByteArray)
+    gcsWriter.close()
 
-  //   println(s"Recommendations saved to $outputPath")
-  // }
+    println(s"Recommendations saved to $outputPath")
+  }
 }

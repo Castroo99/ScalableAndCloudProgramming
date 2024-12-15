@@ -40,6 +40,8 @@ object MatrixFactorizationRDD_ALS {
     val outputFile = f"${basePath}/processed-dataset/matrix_factorization_RDD.csv"//args(3)
     // val sentimentFile = "../processed/new_df_sentiment.csv"//args(2)
     // val outputFile = "../processed/matrixFactRddALS_output.csv"//args(3)
+    
+    val startTime = System.nanoTime()
 
     val spark: SparkSession = SparkSession.builder()
       .appName("ReccSys")
@@ -67,6 +69,10 @@ object MatrixFactorizationRDD_ALS {
       }
       Rating(userId, movieId, totalScore)
     }
+
+    // set di film già visti dall'utente selezionato
+    val movies_watched: Set[Int] = ratingsRdd.filter(_.user == targetUser)
+      .map(_.product).collect().toSet
     
     val Array(trainingRdd, testRdd) = ratingsRdd.randomSplit(Array(0.8, 0.2))
 
@@ -94,17 +100,23 @@ object MatrixFactorizationRDD_ALS {
 
     // generarazione di topN film raccomandati per ogni utente
     val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(topN)
-
     val filteredRecs: RDD[(Int, Array[Rating])] = userRecs.filter {
       case (userId, _) => userId == targetUser
-    }.map {case (userId, recs) => (userId, recs.map { r =>
-          val roundedRating = BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
-          Rating(r.user, r.product, roundedRating)
+    }.map { case (userId, recs) =>
+      // rimossi film già visti
+      (userId, recs.filterNot(r => movies_watched.contains(r.product)).map { r =>
+        val roundedRating = BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+        Rating(r.user, r.product, roundedRating)
       })
     }
 
     saveRecommendationsToGcs(filteredRecs, outputFile)
     print("End MatrixFactorizationRDD_ALS")
+
+    val endTime = System.nanoTime()
+    // Calcola e stampa il tempo di esecuzione
+    val duration = (endTime - startTime) / 1e9d // In secondi
+    println(s"Tempo di esecuzione: $duration secondi")
   }
 
   def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
