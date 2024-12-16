@@ -60,11 +60,7 @@ object MatrixFactorizationRDD_ALS {
       val movieId = fields(0).toInt
       val rating = fields(1).toDouble
       val sentimentResult = fields(3).toDouble
-      val totalScore = {
-        val normalizedRating = math.min(math.max(rating, 0), 5)
-        val normalizedSentiment = math.min(math.max(sentimentResult, 0), 5)
-        (normalizedRating * 0.5) + (normalizedSentiment * 0.5)
-      }
+      val totalScore = (rating*0.5) + (sentimentResult*0.5)
       Rating(userId, movieId, totalScore)
     }
 
@@ -93,8 +89,8 @@ object MatrixFactorizationRDD_ALS {
     val metrics = new RegressionMetrics(predictionsAndLabels)
     val rmse = metrics.rootMeanSquaredError
     val mae = metrics.meanAbsoluteError
-    println(s"RMSE: $rmse")
-    println(s"MAE: $mae")
+    // println(s"RMSE: $rmse")
+    // println(s"MAE: $mae")
 
     // generarazione di topN film raccomandati per ogni utente
     val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(topN)
@@ -103,18 +99,17 @@ object MatrixFactorizationRDD_ALS {
     }.map { case (userId, recs) =>
       // rimossi film già visti
       (userId, recs.filterNot(r => movies_watched.contains(r.product)).map { r =>
-        val roundedRating = BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+        val normalizedScore = math.min(math.max(r.rating, 0), 5)
+        val roundedRating = BigDecimal(normalizedScore).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
         Rating(r.user, r.product, roundedRating)
       })
     }
 
-    saveRecommendationsToGcs(filteredRecs, outputFile)
-    print("End MatrixFactorizationRDD_ALS")
-
     val endTime = System.nanoTime()
-    // Calcola e stampa il tempo di esecuzione
     val duration = (endTime - startTime) / 1e9d // In secondi
     println(s"Tempo di esecuzione: $duration secondi")
+    saveRecommendationsToGcs( filteredRecs, outputFile)
+    // Calcola e stampa il tempo di esecuzione
   }
   def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     print("Starting saveRecommendationsToCsv")
@@ -167,7 +162,6 @@ object MatrixFactorizationRDD_ALS {
     gcsWriter.write(csvData.toByteArray)
     gcsWriter.close()
 
-    println(s"Recommendations saved to $outputPath")
+    println(s"Matrix Recommendations saved successfully for user in $outputPath")
   }
-
 }

@@ -51,6 +51,7 @@ object CollaborativeFilteringDF {
 
   def execCollaborativeItem (spark: SparkSession, targetUser: Int, topN: Int, trainPath: String, outputFile: String): Unit = {
     import spark.implicits._
+    val startTime = System.nanoTime()
     // Leggi il dataset dei voti dei film
     val ratings = spark.read
       .option("header", true)
@@ -99,6 +100,10 @@ object CollaborativeFilteringDF {
 
     println(s"Saving top $topN recommendations for user $targetUser...")
 
+    val endTime = System.nanoTime()
+    // Calcola e stampa il tempo di esecuzione
+    val duration = (endTime - startTime) / 1e9d // In secondi
+    println(s"Tempo di esecuzione: $duration secondi")
 
     // Salva le raccomandazioni in un file CSV locale
     recommendations
@@ -108,7 +113,7 @@ object CollaborativeFilteringDF {
       .mode("overwrite") // Overwrite existing file if it exists
       .csv(outputFile)
 
-    println(s"Recommendations saved successfully for user $targetUser.")
+    println(s"Collaborative Recommendations saved successfully for user $targetUser in $outputFile")
 
     // Chiudi la sessione Spark
     //spark.close()

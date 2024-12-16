@@ -8,18 +8,18 @@ import org.apache.spark.sql.{DataFrame}
 object Main extends App {
   //❌💪
   
-  val userId_selected = 447145
-  val numMoviesRec = 50 
+  val userId_selected = 26
+  val numMoviesRec = 500
   var bucketName = "recommendation-system-lfag"
   val basePath = s"gs://$bucketName"
   val sentimentInputPath = s"$basePath/processed-dataset/user_reviews_quote_trunc.csv"
-  val sentimentOutputPath = s"$basePath/processed-dataset/user_reviews_with_sentiment.csv"
-  val matrixOutputPath = s"$basePath/processed-dataset/user_reviews_factorized_RDD_ALS.csv"
-  val collabOutputPath = s"$basePath/processed-dataset/normalized_predicted_recommendations.csv"
-  val finalRecOutputPath = s"$basePath/processed-dataset/final_recommendations.csv"
+  val sentimentOutputPath = s"$basePath/processed-dataset/user_${userId_selected}_test.csv"
+  val matrixOutputPath = s"$basePath/results/user_${userId_selected}_with_less_reviews/matrix_reccomendations.csv"
+  val collabOutputPath = s"$basePath/results/user_${userId_selected}_with_less_reviews/collaborative_recommendations.csv"
+  val finalRecOutputPath = s"$basePath/results/user_${userId_selected}_with_less_reviews/merged_recommendations.csv"
 
   val spark = SparkSession.builder()
-    .appName("recomandation")
+    .appName("recommendation")
     .master("local[*]")
     .getOrCreate()
   
@@ -59,7 +59,10 @@ object Main extends App {
   // Rinomina le colonne totalScore per evitare ambiguità
   val ratings1WithScore = ratings1.withColumnRenamed("totalScore", "totalScore1")
   val ratings2WithScore = ratings2.withColumnRenamed("totalScore", "totalScore2")
-  
+
+  ratings1WithScore.printSchema()
+  ratings2WithScore.printSchema()
+
   // Unisci i due DataFrame su userId e movieId
   val joinedRatings = ratings1WithScore
     .join(ratings2WithScore, Seq("userId", "movieId"), "outer") // Unione di tipo outer per includere tutte le righe
@@ -67,8 +70,8 @@ object Main extends App {
   // Calcola il punteggio totale sommando i valori
   val finalRatings = joinedRatings.withColumn(
     "totalScore",
-    coalesce(col("totalScore1"), lit(0)) + coalesce(col("totalScore2"), lit(0))
-  )
+    (coalesce(col("totalScore1"), lit(0)) + coalesce(col("totalScore2"), lit(0))) / 2
+  ).orderBy(col("totalScore").desc)
 
   // Scrivi il risultato in un nuovo file CSV
   finalRatings
