@@ -12,7 +12,8 @@ import java.io.ByteArrayOutputStream
 // import kantan.csv.ops._
 import scala.math.BigDecimal.RoundingMode
 import org.apache.spark.mllib.evaluation.RegressionMetrics
-
+import org.apache.spark.storage.StorageLevel
+import org.apache.spark.broadcast.Broadcast
 
 object MatrixFactorizationRDD_ALS {
   //❌💪
@@ -62,11 +63,12 @@ object MatrixFactorizationRDD_ALS {
       val sentimentResult = fields(3).toDouble
       val totalScore = (rating*0.5) + (sentimentResult*0.5)
       Rating(userId, movieId, totalScore)
-    }
+    }.persist(StorageLevel.MEMORY_AND_DISK)
 
     // set di film già visti dall'utente selezionato
-    val movies_watched: Set[Int] = ratingsRdd.filter(_.user == targetUser)
-      .map(_.product).collect().toSet
+    val movies_watched: Broadcast[Set[Int]] = spark.sparkContext.broadcast(
+      ratingsRdd.filter(_.user == targetUser).map(_.product).collect().toSet
+    )
     
     val Array(trainingRdd, testRdd) = ratingsRdd.randomSplit(Array(0.8, 0.2))
 
@@ -93,22 +95,13 @@ object MatrixFactorizationRDD_ALS {
     // println(s"MAE: $mae")
 
     // generarazione di topN film raccomandati per ogni utente
-    val userRecs: RDD[(Int, Array[Rating])] = model.recommendProductsForUsers(topN)
-    val filteredRecs: RDD[(Int, Array[Rating])] = userRecs.filter {
-      case (userId, _) => userId == targetUser
-    }.map { case (userId, recs) =>
-      // rimossi film già visti
-      (userId, recs.filterNot(r => movies_watched.contains(r.product)).map { r =>
-        val normalizedScore = math.min(math.max(r.rating, 0), 5)
-        val roundedRating = BigDecimal(normalizedScore).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
-        Rating(r.user, r.product, roundedRating)
-      })
-    }
+    val recommendations = model.recommendProducts(targetUser, topN).filterNot(r => movies_watched.value.contains(r.product))
+    val recommendationsByUser: RDD[(Int, Array[Rating])] = spark.sparkContext.parallelize(Seq((targetUser, recommendations)))
 
     val endTime = System.nanoTime()
     val duration = (endTime - startTime) / 1e9d // In secondi
     println(s"Tempo di esecuzione: $duration secondi")
-    saveRecommendationsToGcs( filteredRecs, outputFile)
+    saveRecommendationsToGcs( recommendationsByUser, outputFile)
     // Calcola e stampa il tempo di esecuzione
   }
   def saveRecommendationsToCsv(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
@@ -132,9 +125,15 @@ object MatrixFactorizationRDD_ALS {
   def saveRecommendationsToGcs(userRecs: RDD[(Int, Array[Rating])], outputPath: String): Unit = {
     print("Starting MatrixFactorizationRDD_ALS.saveRecommendationsToGcs")
     val recommendations: RDD[(Int, Int, Double)] = userRecs.flatMap {
-      // case (userId, recs) => recs.map(r => (userId, r.product, r.rating))
-      case (userId, recs) => recs.map(r => (userId, r.product, 
-        BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble))
+        case (userId, recs) => 
+          // Mappa ogni raccomandazione per arrotondare il rating e trasformarla in un oggetto Rating
+          recs.map { r =>
+            val roundedRating = BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+            Rating(r.user, r.product, roundedRating)
+          }.map { r => 
+            // Dopo aver ottenuto il Rating, creiamo una tupla (userId, movieId, totalScore)
+            (r.user, r.product, r.rating)
+      }
     }
 
     // Convert recommendations to CSV format in memory
