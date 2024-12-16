@@ -128,7 +128,8 @@ object MatrixFactorizationRDD_ALS {
         case (userId, recs) => 
           // Mappa ogni raccomandazione per arrotondare il rating e trasformarla in un oggetto Rating
           recs.map { r =>
-            val roundedRating = BigDecimal(r.rating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+            val normalizedRating = math.min(math.max(r.rating, 0), 5)
+            val roundedRating = BigDecimal(normalizedRating).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
             Rating(r.user, r.product, roundedRating)
           }.map { r => 
             // Dopo aver ottenuto il Rating, creiamo una tupla (userId, movieId, totalScore)
