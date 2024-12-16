@@ -19,7 +19,7 @@ assembly / assemblyMergeStrategy := {
 }
 
 // Configurazione del Main Class per l'assembly jar
-Compile / mainClass := Some("SentimentAnalysisModule.old_SentimentCSVProcessorSpark")
+Compile / mainClass := Some("SentimentAnalysisModule.StanfordSentimentAnalysis")
 
 // Dipendenze del progetto
 libraryDependencies ++= Seq(

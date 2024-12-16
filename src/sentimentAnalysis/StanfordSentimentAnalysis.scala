@@ -15,16 +15,14 @@ import scala.math.BigDecimal.RoundingMode
 import scala.collection.JavaConverters._
 import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 
-object old_SentimentCSVProcessorSpark {
+object StanfordSentimentAnalysis {
 
   // Crea una sessione Spark
-  val spark: SparkSession = SparkSession.builder()
-    .appName("ReccSys")
-    .master("local[*]")
-    .getOrCreate()
-  
-  import spark.implicits._
-  
+  // val spark: SparkSession = SparkSession.builder()
+  //   .appName("ReccSys")
+  //   .master("yarn")
+  //   .getOrCreate()
+    
   val props = new Properties()
   props.setProperty("annotators", "tokenize, ssplit, parse, sentiment")
   
@@ -88,35 +86,52 @@ object old_SentimentCSVProcessorSpark {
     writer.close()
   }
 
+  var index = 0
+  val sentimentUDF = F.udf((quote: String) => {
+    if (quote != null && quote.nonEmpty) {
+      index=index+1
+      val shortQuote = if (quote.length > 1000) quote.substring(0, 1000) else quote
+      print(f"Analyzing quote: ${index}\n")
+      BigDecimal(extractSentiment(shortQuote)).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+    } else {
+      3.0
+    }
+  })
+
   // Funzione per processare il CSV e aggiungere il risultato del sentiment
-  def processCSV(inputFile: String, outputPath: String): DataFrame = {
+  def processCSV(spark: SparkSession, inputFile: String, outputPath: String): Unit = {
+    import spark.implicits._
     // Aggiungi il tempo di inizio
     val startTime = System.nanoTime()
 
     // Carica il CSV in un DataFrame di Spark
     val df = spark.read.option("header", "true").csv(inputFile)
-    val Array(df1, df2, df3, df4, df5, df6, df7, df8, df9, df10) = df.randomSplit(Array(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1))
+    //val Array(df1, df2, df3, df4, df5, df6, df7, df8, df9, df10) = df.randomSplit(Array(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1))
 
     // Definisci una UDF (User Defined Function) per calcolare il sentiment
-    var index=0
-    val sentimentUDF = F.udf((quote: String) => {
-      index=index+1
-      if (quote != null && quote.nonEmpty) {
-        val shortQuote = if (quote.length > 1000) quote.substring(0, 1000) else quote
-        print(f"Analyzing quote: ${index}, '${shortQuote}'\n")
-        val sentiment = extractSentiment(shortQuote)
-        val cap = BigDecimal(sentiment).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
-        cap
-      } else {
-        3.0
-      }
-    })
+    //var index=0
+    // val sentimentUDF = F.udf((quote: String) => {
+    //   index=index+1
+    //   if (quote != null && quote.nonEmpty) {
+    //     val shortQuote = if (quote.length > 1000) quote.substring(0, 1000) else quote
+    //     print(f"Analyzing quote: ${index}, '${shortQuote}'\n")
+    //     val sentiment = extractSentiment(shortQuote)
+    //     val cap = BigDecimal(sentiment).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+    //     cap
+    //   } else {
+    //     3.0
+    //   }
+    // })
 
     // Applica la UDF al DataFrame per creare la nuova colonna 'sentimentResult'
-    val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
+    // val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
+    val resultDF = df
+      .repartition(200) // Partiziona per parallelizzare
+      .withColumn("sentimentResult", sentimentUDF(F.col("quote")))
+      .drop("quote")
     println("Sentiment analysis completed.")
     //resultDF.show(1000, truncate = false)
-    saveDataFrameToGcs(resultDF, outputPath)
+    //saveDataFrameToGcs(resultDF, outputPath)
     // Persisti il DataFrame in memoria
     // val cachedDF = resultDF.cache()
 
@@ -130,8 +145,11 @@ object old_SentimentCSVProcessorSpark {
     // Calcola e stampa il tempo di esecuzione
     val duration = (endTime - startTime) / 1e9d // In secondi
     println(s"Tempo di esecuzione: $duration secondi")
-
-    resultDF
+    resultDF.write
+      .option("header", "true")
+      .mode("overwrite")
+      .csv(outputPath)
+    //resultDF
   }
   
 
@@ -144,6 +162,6 @@ object old_SentimentCSVProcessorSpark {
 	  val outputPath = s"${basePath}/processed-dataset/df1_sentiment.csv"
 
     // Chiamata alla funzione per processare il CSV
-    processCSV(datasetPath, outputPath)
+    //processCSV(datasetPath, outputPath)
   }
 }
