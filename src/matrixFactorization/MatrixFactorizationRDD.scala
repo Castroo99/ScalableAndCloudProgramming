@@ -23,7 +23,7 @@ object MatrixFactorizationRDD {
     //matrixFactorizationRdd(userId_selected, numMoviesRec, sentimentDF, outputFile)
     }
 
-   def matrixFactorizationRdd(userId_selected: Int, numMoviesRec: Int, sentimentDF: DataFrame, outputFile: String): Unit = {
+   def matrixFactorizationRdd(targetUser: Int, topN: Int, sentimentFile: String, outputFile: String): Unit = {
     print("Starting MatrixFactorizationRDD")
     val startTime = System.nanoTime()
     val spark: SparkSession = SparkSession.builder()
