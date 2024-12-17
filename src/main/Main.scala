@@ -20,7 +20,7 @@ object Main extends App {
 
   val spark = SparkSession.builder()
     .appName("recommendation")
-    .master("local[1]")
+    .master("yarn")
     .getOrCreate()
   
     
