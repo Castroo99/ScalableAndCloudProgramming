@@ -86,12 +86,12 @@ object StanfordSentimentAnalysis {
     writer.close()
   }
 
-  var index = 0
+  // var index = 0
   val sentimentUDF = F.udf((quote: String) => {
     if (quote != null && quote.nonEmpty) {
-      index=index+1
+      // index=index+1
       val shortQuote = if (quote.length > 1000) quote.substring(0, 1000) else quote
-      print(f"Analyzing quote: ${index}\n")
+      // print(f"Analyzing quote: ${index}\n")
       BigDecimal(extractSentiment(shortQuote)).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
     } else {
       3.0
@@ -126,7 +126,7 @@ object StanfordSentimentAnalysis {
     // Applica la UDF al DataFrame per creare la nuova colonna 'sentimentResult'
     // val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
     val resultDF = df
-      .repartition(200) // Partiziona per parallelizzare
+      .repartition(3) // Partiziona per parallelizzare
       .withColumn("sentimentResult", sentimentUDF(F.col("quote")))
       .drop("quote")
     println("Sentiment analysis completed.")
@@ -145,7 +145,9 @@ object StanfordSentimentAnalysis {
     // Calcola e stampa il tempo di esecuzione
     val duration = (endTime - startTime) / 1e9d // In secondi
     println(s"Tempo di esecuzione: $duration secondi")
-    resultDF.write
+    resultDF
+      .coalesce(1)
+      .write
       .option("header", "true")
       .mode("overwrite")
       .csv(outputPath)

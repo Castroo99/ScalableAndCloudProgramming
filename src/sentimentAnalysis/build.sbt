@@ -32,7 +32,7 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql" % "3.5.0",
   "com.google.cloud" % "google-cloud-storage" % "2.27.1",
   "org.apache.spark" %% "spark-mllib" % "3.5.0",
-  "com.johnsnowlabs.nlp" %% "spark-nlp" % "5.4.0",
+  "com.johnsnowlabs.nlp" %% "spark-nlp" % "5.5.1",
   "com.nrinaudo" %% "kantan.csv" % "0.6.1"
 )
 
