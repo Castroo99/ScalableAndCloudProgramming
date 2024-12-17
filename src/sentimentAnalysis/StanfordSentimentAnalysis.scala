@@ -16,12 +16,6 @@ import scala.collection.JavaConverters._
 import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 
 object StanfordSentimentAnalysis {
-
-  // Crea una sessione Spark
-  // val spark: SparkSession = SparkSession.builder()
-  //   .appName("ReccSys")
-  //   .master("yarn")
-  //   .getOrCreate()
     
   val props = new Properties()
   props.setProperty("annotators", "tokenize, ssplit, parse, sentiment")
@@ -106,39 +100,14 @@ object StanfordSentimentAnalysis {
 
     // Carica il CSV in un DataFrame di Spark
     val df = spark.read.option("header", "true").csv(inputFile)
-    //val Array(df1, df2, df3, df4, df5, df6, df7, df8, df9, df10) = df.randomSplit(Array(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1))
-
-    // Definisci una UDF (User Defined Function) per calcolare il sentiment
-    //var index=0
-    // val sentimentUDF = F.udf((quote: String) => {
-    //   index=index+1
-    //   if (quote != null && quote.nonEmpty) {
-    //     val shortQuote = if (quote.length > 1000) quote.substring(0, 1000) else quote
-    //     print(f"Analyzing quote: ${index}, '${shortQuote}'\n")
-    //     val sentiment = extractSentiment(shortQuote)
-    //     val cap = BigDecimal(sentiment).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
-    //     cap
-    //   } else {
-    //     3.0
-    //   }
-    // })
 
     // Applica la UDF al DataFrame per creare la nuova colonna 'sentimentResult'
-    // val resultDF = df.withColumn("sentimentResult", sentimentUDF(F.col("quote"))).drop("quote")
     val resultDF = df
-      .repartition(3) // Partiziona per parallelizzare
+      .repartition(200) // Partiziona per parallelizzare
       .withColumn("sentimentResult", sentimentUDF(F.col("quote")))
       .drop("quote")
     println("Sentiment analysis completed.")
     //resultDF.show(1000, truncate = false)
-    //saveDataFrameToGcs(resultDF, outputPath)
-    // Persisti il DataFrame in memoria
-    // val cachedDF = resultDF.cache()
-
-    // Stampa una parte del DataFrame per verificare i risultati
-    //cachedDF.show(20, truncate = false)
-
-    //saveDataFrameToGcs(finalDF, outputPath)
     
     // Aggiungi il tempo di fine
     val endTime = System.nanoTime()
@@ -151,7 +120,6 @@ object StanfordSentimentAnalysis {
       .option("header", "true")
       .mode("overwrite")
       .csv(outputPath)
-    //resultDF
   }
   
 
