@@ -1,9 +1,9 @@
 package main
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.SparkSession
-import SentimentAnalysisModule.StanfordSentimentAnalysis
-// import CollaborativeItemModule.CollaborativeFilteringDF
-// import MatrixFactorizationALSPackage.MatrixFactorizationRDD_ALS
+// import SentimentAnalysisModule.StanfordSentimentAnalysis
+import CollaborativeItemModule.CollaborativeFilteringDF
+import MatrixFactorizationALSPackage.MatrixFactorizationRDD_ALS
 import org.apache.spark.sql.{DataFrame}
 object Main extends App {
   //❌💪
@@ -20,65 +20,65 @@ object Main extends App {
 
   val spark = SparkSession.builder()
     .appName("recommendation")
-    .master("yarn")
+    .master("local[1]")
     .getOrCreate()
   
     
-    StanfordSentimentAnalysis.processCSV(
-      spark,
-      sentimentInputPath,
-      sentimentOutputPath
-    )  
+    // StanfordSentimentAnalysis.processCSV(
+    //   spark,
+    //   sentimentInputPath,
+    //   sentimentOutputPath
+    // )  
   
 
   //Matrix Factorization Recommendation
-  // MatrixFactorizationRDD_ALS.matrixFactorizationRDDAls(
-  //   spark,
-  //   userId_selected, 
-  //   numMoviesRec,
-  //   sentimentOutputPath,
-  //   matrixOutputPath
-  // )
+  MatrixFactorizationRDD_ALS.matrixFactorizationRDDAls(
+    spark,
+    userId_selected, 
+    numMoviesRec,
+    sentimentOutputPath,
+    matrixOutputPath
+  )
   
   //Collaborative Filtering Recc. with MatrixFact. output
-  // CollaborativeFilteringDF.execCollaborativeItem(
-  //   spark,
-  //   userId_selected, 
-  //   numMoviesRec,
-  //   sentimentOutputPath,
-  //   collabOutputPath
-  // )
+  CollaborativeFilteringDF.execCollaborativeItem(
+    spark,
+    userId_selected, 
+    numMoviesRec,
+    sentimentOutputPath,
+    collabOutputPath
+  )
 
   // // Leggi i file CSV dei risultati
-  // val ratings1 = spark.read
-  //   .option("header", true)
-  //   .csv(matrixOutputPath)
-  // val ratings2 = spark.read
-  //   .option("header", true)
-  //   .csv(collabOutputPath)
+  val ratings1 = spark.read
+    .option("header", true)
+    .csv(matrixOutputPath)
+  val ratings2 = spark.read
+    .option("header", true)
+    .csv(collabOutputPath)
 
-  // // Rinomina le colonne totalScore per evitare ambiguità
-  // val ratings1WithScore = ratings1.withColumnRenamed("totalScore", "totalScore1")
-  // val ratings2WithScore = ratings2.withColumnRenamed("totalScore", "totalScore2")
+  // Rinomina le colonne totalScore per evitare ambiguità
+  val ratings1WithScore = ratings1.withColumnRenamed("totalScore", "totalScore1")
+  val ratings2WithScore = ratings2.withColumnRenamed("totalScore", "totalScore2")
 
-  // ratings1WithScore.printSchema()
-  // ratings2WithScore.printSchema()
+  ratings1WithScore.printSchema()
+  ratings2WithScore.printSchema()
 
-  // // Unisci i due DataFrame su userId e movieId
-  // val joinedRatings = ratings1WithScore
-  //   .join(ratings2WithScore, Seq("userId", "movieId"), "outer") // Unione di tipo outer per includere tutte le righe
+  // Unisci i due DataFrame su userId e movieId
+  val joinedRatings = ratings1WithScore
+    .join(ratings2WithScore, Seq("userId", "movieId"), "outer") // Unione di tipo outer per includere tutte le righe
 
-  // // Calcola il punteggio totale sommando i valori
-  // val finalRatings = joinedRatings.withColumn(
-  //   "totalScore",
-  //   (coalesce(col("totalScore1"), lit(0)) + coalesce(col("totalScore2"), lit(0))) / 2
-  // ).orderBy(col("totalScore").desc)
+  // Calcola il punteggio totale sommando i valori
+  val finalRatings = joinedRatings.withColumn(
+    "totalScore",
+    (coalesce(col("totalScore1"), lit(0)) + coalesce(col("totalScore2"), lit(0))) / 2
+  ).orderBy(col("totalScore").desc)
 
-  // // Scrivi il risultato in un nuovo file CSV
-  // finalRatings
-  //   .select("userId", "movieId", "totalScore")
-  //   .write
-  //   .option("header", "true")
-  //   .mode("overwrite") // Overwrite existing file if it exists
-  //   .csv(finalRecOutputPath) 
+  // Scrivi il risultato in un nuovo file CSV
+  finalRatings
+    .select("userId", "movieId", "totalScore")
+    .write
+    .option("header", "true")
+    .mode("overwrite") // Overwrite existing file if it exists
+    .csv(finalRecOutputPath) 
 }

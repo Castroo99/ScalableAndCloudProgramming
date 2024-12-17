@@ -60,8 +60,8 @@ object MatrixFactorizationRDD_ALS {
         val userId = fields(2).toInt
         val movieId = fields(0).toInt
         val rating = fields(1).toDouble
-        //val sentimentResult = fields(3).toDouble
-        val totalScore = rating //* 0.5) + (sentimentResult * 0.5)
+        val sentimentResult = fields(3).toDouble
+        val totalScore = (rating * 0.5) + (sentimentResult * 0.5)
         Rating(userId, movieId, totalScore)
       }
     }.persist(StorageLevel.MEMORY_AND_DISK)
