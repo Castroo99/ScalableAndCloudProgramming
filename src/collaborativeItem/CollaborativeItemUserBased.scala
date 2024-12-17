@@ -59,12 +59,13 @@ object CollaborativeFilteringDF {
 
     // Preprocessing dei dati: converti i rating in tipo Double
     val ratingsDF = ratings
-      .select(col("movieId"), col("userId"), col("rating").cast("Double"), col("sentimentResult").cast("Double"))
+      .select(col("movieId"), col("userId"), col("rating").cast("Double")//, col("sentimentResult").cast("Double")
+      )
 
     // Aggiungi una nuova colonna con il calcolo richiesto
     val updatedRatingsDF = ratingsDF.withColumn(
       "rating",
-      col("rating") * 0.5 + col("sentimentResult") * 0.5
+      col("rating") //* 0.5 + col("sentimentResult") * 0.5
     )
 
     println(s"Compute similarity for user $targetUser...")
