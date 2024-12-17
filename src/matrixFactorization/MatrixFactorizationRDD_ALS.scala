@@ -78,32 +78,14 @@ object MatrixFactorizationRDD_ALS {
     val lambda = 0.1
 
     val model = ALS.train(trainingRdd, rank, numIterations, lambda)    
-    // val predictions: RDD[Rating] = model.predict(testRdd.map(r => (r.user, r.product)))
-
-    // val predictionsMap = predictions
-    //   .map(r => ((r.user, r.product), r.rating))
-    //   .collectAsMap()
-
-    // val predictionsAndLabels = testRdd.map { case Rating(userId, movieId, rating) =>
-    //   val predictedRating = predictionsMap.getOrElse((userId, movieId), 0.0)
-    //   (predictedRating, rating)
-    // }
-
-    // val metrics = new RegressionMetrics(predictionsAndLabels)
-    // val rmse = metrics.rootMeanSquaredError
-    // val mae = metrics.meanAbsoluteError
-    // println(s"RMSE: $rmse")
-    // println(s"MAE: $mae")
 
     // generarazione di topN film raccomandati per ogni utente
-    // val recommendations = model.recommendProducts(targetUser, topN).filterNot(r => movies_watched.value.contains(r.product))
     val recommendations: RDD[(Int, Array[Rating])] = spark.sparkContext.parallelize(
       Seq((targetUser, model.recommendProducts(targetUser, topN)
         .filterNot(r => movies_watched.value.contains(r.product))
         .map(r => Rating(r.user, r.product, BigDecimal(r.rating).setScale(2, RoundingMode.HALF_UP).toDouble)))
       )
     )
-    // val recommendationsByUser: RDD[(Int, Array[Rating])] = spark.sparkContext.parallelize(Seq((targetUser, recommendations)))
     val endTime = System.nanoTime()
     val duration = (endTime - startTime) / 1e9d // In secondi
     println(s"Tempo di esecuzione: $duration secondi")
